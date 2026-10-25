@@ -1,0 +1,38 @@
+name: moonreel
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: moonreel-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: moonreel
+      POSTGRES_PASSWORD: moonreel
+      POSTGRES_DB: moonreel
+    ports:
+      - "5434:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  muse2api:
+    # Unofficial muse.ai bridge (MIT): https://github.com/bynne2602/muse2api
+    build: https://github.com/bynne2602/muse2api.git#main
+    image: muse2api:local
+    container_name: moonreel-muse2api
+    restart: unless-stopped
+    ports:
+      - "18610:18610"
+    environment:
+      - MUSE2API_KEY=${MUSE2API_KEY:?set MUSE2API_KEY in .env}
+      - MUSE2API_IMAGE_TIMEOUT=300
+      - MUSE2API_VIDEO_TIMEOUT=900
+      - MUSE2API_CHAT_TIMEOUT=300
+      - MUSE2API_CONCURRENCY=1
+    volumes:
+      # Kept outside the repo: muse2api rewrites tasks.json every second, which would
+      # make `next dev` recompile and reload the page in a loop.
+      - ${HOME}/.moonreel/muse2api:/app/data
+    shm_size: "2gb"
+
+volumes:
+  pgdata:

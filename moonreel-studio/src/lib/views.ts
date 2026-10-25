@@ -1,0 +1,48 @@
+import { asc, eq } from "drizzle-orm";
+import { db } from "@/db";
+import { projects, scenes } from "@/db/schema";
+import { fileUrl } from "@/lib/storage";
+
+/** Project + scenes shaped for the client editor; one relational query. */
+export async function getProjectView(id: string) {
+  const project = await db.query.projects.findFirst({
+    where: eq(projects.id, id),
+    with: {
+      niche: { columns: { id: true, name: true, icon: true, sceneSeconds: true } },
+      character: true,
+      scenes: { orderBy: [asc(scenes.index)] },
+    },
+  });
+  if (!project) return null;
+
+  return {
+    id: project.id,
+    title: project.title,
+    topic: project.topic,
+    aspectRatio: project.aspectRatio,
+    status: project.status,
+    error: project.error,
+    updatedAt: project.updatedAt.toISOString(),
+    niche: project.niche,
+    character: project.character && {
+      id: project.character.id,
+      name: project.character.name,
+      referenceUrl: fileUrl(project.character.referenceImagePath, project.character.updatedAt),
+    },
+    finalVideoUrl: fileUrl(project.finalVideoPath, project.updatedAt),
+    captionsUrl: fileUrl(project.captionsPath, project.updatedAt),
+    scenes: project.scenes.map((s) => ({
+      id: s.id,
+      index: s.index,
+      narration: s.narration,
+      visualPrompt: s.visualPrompt,
+      camera: s.camera,
+      status: s.status,
+      error: s.error,
+      keyframeUrl: fileUrl(s.keyframePath, s.updatedAt),
+      clipUrl: fileUrl(s.clipPath, s.updatedAt),
+    })),
+  };
+}
+
+export type ProjectView = NonNullable<Awaited<ReturnType<typeof getProjectView>>>;

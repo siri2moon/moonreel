@@ -1,0 +1,350 @@
+@import "tailwindcss";
+
+/*
+ * MoonReel — "frosted champagne glass at midnight".
+ * Near-black canvas, a spotlight from above, surfaces that read as glass plates lit
+ * from behind (inset hairline highlights, no hard borders), warm cream type and a
+ * champagne-gold accent used sparingly. Metallic gold is reserved for the brand,
+ * primary actions and active states.
+ */
+
+:root {
+  --background: #04040a;
+  --foreground: #f7f0e1;
+  --muted: #b3a994;
+  --subtle: #7d7566;
+
+  --gold: #d6b783;
+  --gold-light: #f4e2b8;
+  --gold-deep: #9b7b45;
+
+  --danger: #ff7a7a;
+  --success: #7fe0ae;
+  --warning: #f3c56b;
+  --info: #a9c6ff;
+
+  /* Glass: a near-invisible warm tint plus inset hairlines. */
+  --glass-fill: linear-gradient(180deg, rgb(255 240 214 / 0.055), rgb(255 240 214 / 0.018));
+  --glass-hairline: rgb(255 232 196 / 0.09);
+  --glass-hairline-strong: rgb(255 232 196 / 0.2);
+  --glass-shadow:
+    inset 0 1px 0 0 rgb(255 246 226 / 0.1), inset 0 0 0 1px var(--glass-hairline),
+    0 24px 60px -24px rgb(0 0 0 / 0.85);
+  --glass-shadow-hover:
+    inset 0 1px 0 0 rgb(255 246 226 / 0.16), inset 0 0 0 1px var(--glass-hairline-strong),
+    0 0 0 1px rgb(214 183 131 / 0.06), 0 30px 70px -24px rgb(0 0 0 / 0.9),
+    0 0 50px -12px rgb(214 183 131 / 0.25);
+
+  --gold-gradient: linear-gradient(
+    110deg,
+    #b8915a 0%,
+    #f1d9a6 22%,
+    #fff6dc 34%,
+    #d9b77d 48%,
+    #a8834c 64%,
+    #efd6a0 82%,
+    #c9a56d 100%
+  );
+  --luminous-text: linear-gradient(180deg, #fffaf0 20%, #e7cf9f 110%);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-muted: var(--muted);
+  --color-subtle: var(--subtle);
+  --color-border: var(--glass-hairline);
+  --color-border-strong: var(--glass-hairline-strong);
+  --color-gold: var(--gold);
+  --color-gold-light: var(--gold-light);
+  --color-gold-deep: var(--gold-deep);
+  --color-danger: var(--danger);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-info: var(--info);
+  --font-sans: var(--font-body);
+  --font-mono: var(--font-geist-mono);
+}
+
+html {
+  color-scheme: dark;
+  background: var(--background);
+}
+
+/* No body background: it would paint over the fixed .sky layer (z-index -1). */
+body {
+  color: var(--foreground);
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  background: rgb(214 183 131 / 0.35);
+  color: #fff;
+}
+
+/* ------------------------------------------------------------------ the sky */
+
+.sky {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  overflow: hidden;
+  background:
+    radial-gradient(70% 55% at 50% -18%, rgb(255 226 168 / 0.17), transparent 70%),
+    radial-gradient(40% 40% at 92% 8%, rgb(140 100 255 / 0.10), transparent 70%),
+    radial-gradient(45% 45% at 0% 60%, rgb(80 90 220 / 0.09), transparent 70%),
+    radial-gradient(50% 40% at 70% 110%, rgb(214 183 131 / 0.10), transparent 70%),
+    var(--background);
+}
+
+/* Spotlight beam falling from the top centre. */
+.sky .beam {
+  position: absolute;
+  top: -10%;
+  left: 50%;
+  width: 70vw;
+  height: 90vh;
+  transform: translateX(-50%);
+  background: conic-gradient(
+    from 180deg at 50% 0%,
+    transparent 160deg,
+    rgb(255 236 196 / 0.09) 170deg,
+    rgb(255 244 220 / 0.16) 180deg,
+    rgb(255 236 196 / 0.09) 190deg,
+    transparent 200deg
+  );
+  filter: blur(18px);
+  mask-image: linear-gradient(180deg, #000 30%, transparent 100%);
+}
+
+/* Faint blueprint grid that fades out away from the spotlight. */
+.sky .grid {
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgb(255 232 196 / 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(255 232 196 / 0.035) 1px, transparent 1px);
+  background-size: 64px 64px;
+  mask-image: radial-gradient(70% 60% at 50% 0%, #000 0%, transparent 75%);
+}
+
+.sky .stars,
+.sky .stars-2 {
+  position: absolute;
+  inset: 0;
+  background-repeat: repeat;
+}
+
+.sky .stars {
+  background-image:
+    radial-gradient(1px 1px at 20px 30px, rgb(255 255 255 / 0.85), transparent),
+    radial-gradient(1px 1px at 140px 80px, rgb(255 240 200 / 0.7), transparent),
+    radial-gradient(1px 1px at 60px 170px, rgb(255 255 255 / 0.55), transparent),
+    radial-gradient(1.5px 1.5px at 210px 140px, rgb(244 226 184 / 0.9), transparent),
+    radial-gradient(1px 1px at 260px 20px, rgb(255 255 255 / 0.5), transparent),
+    radial-gradient(1px 1px at 100px 110px, rgb(200 210 255 / 0.6), transparent);
+  background-size: 300px 230px;
+  animation: twinkle 6s ease-in-out infinite alternate;
+}
+
+.sky .stars-2 {
+  background-image:
+    radial-gradient(1.5px 1.5px at 90px 40px, rgb(255 255 255 / 0.75), transparent),
+    radial-gradient(1.5px 1.5px at 330px 260px, rgb(244 226 184 / 0.8), transparent),
+    radial-gradient(1px 1px at 240px 330px, rgb(255 255 255 / 0.55), transparent),
+    radial-gradient(1px 1px at 400px 120px, rgb(200 210 255 / 0.6), transparent);
+  background-size: 470px 390px;
+  animation: twinkle 9s ease-in-out infinite alternate-reverse;
+}
+
+/* A handful of four-point glints that pulse slowly. */
+.glint {
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  background: radial-gradient(circle, #fff8e6 0 10%, rgb(255 236 196 / 0.4) 18%, transparent 30%);
+  animation: glint 5s ease-in-out infinite;
+}
+.glint::before,
+.glint::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgb(255 244 214 / 0.95), transparent);
+}
+.glint::after {
+  transform: rotate(90deg);
+}
+
+@keyframes twinkle {
+  from {
+    opacity: 0.35;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes glint {
+  0%,
+  100% {
+    opacity: 0.15;
+    transform: scale(0.6) rotate(0deg);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.15) rotate(45deg);
+  }
+}
+
+@keyframes shine {
+  from {
+    background-position: 0% 50%;
+  }
+  to {
+    background-position: 200% 50%;
+  }
+}
+
+@keyframes sheen {
+  from {
+    transform: translateX(-120%) skewX(-20deg);
+  }
+  to {
+    transform: translateX(260%) skewX(-20deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sky .stars,
+  .sky .stars-2,
+  .glint {
+    animation: none;
+  }
+}
+
+/* ---------------------------------------------------------------- utilities */
+
+/* Frosted glass plate lit from behind. */
+@utility glass {
+  background: var(--glass-fill);
+  backdrop-filter: blur(22px) saturate(140%);
+  box-shadow: var(--glass-shadow);
+}
+
+/* Interactive glass: the hairline brightens and a warm halo appears on hover. */
+@utility glass-hover {
+  transition:
+    box-shadow 300ms ease,
+    transform 300ms ease,
+    background 300ms ease;
+  &:hover {
+    box-shadow: var(--glass-shadow-hover);
+  }
+}
+
+/* Thin frost for chips, inputs and small controls. */
+@utility frost {
+  background: rgb(255 240 214 / 0.04);
+  box-shadow: inset 0 0 0 1px var(--glass-hairline);
+}
+
+@utility text-gold {
+  background-image: var(--gold-gradient);
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* Headline text that looks lit from behind a glass layer. */
+@utility text-luminous {
+  background-image: var(--luminous-text);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+@utility bg-gold {
+  background-image: var(--gold-gradient);
+  background-size: 200% 100%;
+}
+
+@utility animate-shine {
+  animation: shine 8s linear infinite;
+}
+
+/* A light streak that sweeps across the element on hover. */
+@utility sheen {
+  position: relative;
+  overflow: hidden;
+  &::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    width: 40%;
+    background: linear-gradient(90deg, transparent, rgb(255 255 255 / 0.55), transparent);
+    transform: translateX(-120%) skewX(-20deg);
+    pointer-events: none;
+  }
+  &:hover::after {
+    animation: sheen 900ms ease;
+  }
+}
+
+/* Metallic hairline, brightest at the top as if lit from above. */
+@utility gold-ring {
+  position: relative;
+  &::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    padding: 1px;
+    border-radius: inherit;
+    background: linear-gradient(
+      180deg,
+      rgb(255 236 196 / 0.75),
+      rgb(214 183 131 / 0.25) 40%,
+      rgb(214 183 131 / 0.08) 100%
+    );
+    -webkit-mask:
+      linear-gradient(#000 0 0) content-box,
+      linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    pointer-events: none;
+  }
+}
+
+@utility glow-gold {
+  box-shadow:
+    inset 0 1px 0 0 rgb(255 246 226 / 0.16),
+    0 0 60px -14px rgb(214 183 131 / 0.45);
+}
+
+input,
+textarea,
+select {
+  color-scheme: dark;
+}
+
+select option {
+  background: #121018;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: rgb(255 232 196 / 0.1);
+  border-radius: 999px;
+  border: 2px solid var(--background);
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
