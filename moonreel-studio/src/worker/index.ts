@@ -1,7 +1,9 @@
 import { env } from "@/lib/env";
 import {
   generateCharacterReference,
+  generatePosts,
   generateScript,
+  generateThumbnail,
   produceScene,
   renderProject,
 } from "@/lib/pipeline/jobs";
@@ -9,6 +11,8 @@ import {
   QUEUES,
   getBoss,
   type CharacterReferenceJob,
+  type ProjectPostsJob,
+  type ProjectThumbnailJob,
   type ProjectRenderJob,
   type SceneProduceJob,
   type ScriptGenerateJob,
@@ -40,6 +44,16 @@ async function main() {
   await boss.work<ProjectRenderJob>(QUEUES.projectRender, async ([job]) => {
     console.log(`[render] project ${job.data.projectId}`);
     await renderProject(job.data.projectId);
+  });
+
+  await boss.work<ProjectPostsJob>(QUEUES.projectPosts, async ([job]) => {
+    console.log(`[posts] project ${job.data.projectId}`);
+    await generatePosts(job.data.projectId);
+  });
+
+  await boss.work<ProjectThumbnailJob>(QUEUES.projectThumbnail, async ([job]) => {
+    console.log(`[thumbnail] project ${job.data.projectId}`);
+    await generateThumbnail(job.data.projectId);
   });
 
   console.log(`Worker ready (Muse concurrency ${museConcurrency})`);

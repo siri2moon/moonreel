@@ -62,12 +62,19 @@ function buildSrt(lines: string[], durations: number[]) {
     .join("\n");
 }
 
+// Clip sound under a narrator voice-over: ambience stays audible, any stray speech recedes.
+const AMBIENT_UNDER_VOICE = 0.25;
+const VOICE_LEAD_IN_S = 0.25;
+const VOICE_TAIL_S = 0.35;
+
 /**
  * Normalizes every clip to the target frame/fps/audio format and concatenates them,
  * embedding the narration as a soft subtitle track and writing a sidecar .srt.
+ * Clips with a `voice` file get it mixed over their own (lowered) sound; when the line runs
+ * longer than the clip, the last frame is held until the voice finishes.
  */
 export async function renderFinal(input: {
-  clips: { file: string; narration: string }[];
+  clips: { file: string; narration: string; voice?: string }[];
   aspectRatio: AspectRatio;
   outFile: string;
   srtFile: string;
@@ -75,9 +82,16 @@ export async function renderFinal(input: {
   const { clips, aspectRatio, outFile, srtFile } = input;
   const { w, h } = FRAME[aspectRatio];
   // Independent ffprobe processes, not queries: probing in parallel is just faster.
-  const infos = await Promise.all(clips.map((c) => probe(c.file)));
+  const [infos, voices] = await Promise.all([
+    Promise.all(clips.map((c) => probe(c.file))),
+    Promise.all(clips.map((c) => (c.voice ? probe(c.voice) : null))),
+  ]);
+  const durations = infos.map((info, i) => {
+    const voice = voices[i];
+    return voice ? Math.max(info.duration, VOICE_LEAD_IN_S + voice.duration + VOICE_TAIL_S) : info.duration;
+  });
 
-  await writeFile(srtFile, buildSrt(clips.map((c) => c.narration), infos.map((i) => i.duration)));
+  await writeFile(srtFile, buildSrt(clips.map((c) => c.narration), durations));
 
   const args: string[] = ["-y", "-hide_banner"];
   for (const c of clips) args.push("-i", c.file);
@@ -90,20 +104,38 @@ export async function renderFinal(input: {
     args.push("-f", "lavfi", "-t", info.duration.toFixed(3), "-i", "anullsrc=r=44100:cl=stereo");
     silentInput.set(i, nextInput++);
   });
+  const voiceInput = new Map<number, number>();
+  clips.forEach((c, i) => {
+    if (!c.voice) return;
+    args.push("-i", c.voice);
+    voiceInput.set(i, nextInput++);
+  });
   const srtInput = nextInput;
   args.push("-i", srtFile);
 
   const filters: string[] = [];
   const concatInputs: string[] = [];
+  const toStereo = "aresample=44100,aformat=sample_fmts=fltp:channel_layouts=stereo";
   infos.forEach((info, i) => {
-    const dur = info.duration.toFixed(3);
+    const dur = durations[i].toFixed(3);
+    const hold = durations[i] - info.duration;
     filters.push(
-      `[${i}:v]scale=${w}:${h}:force_original_aspect_ratio=decrease,pad=${w}:${h}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1,fps=30,format=yuv420p,trim=0:${dur},setpts=PTS-STARTPTS[v${i}]`,
+      `[${i}:v]scale=${w}:${h}:force_original_aspect_ratio=decrease,pad=${w}:${h}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1,fps=30,format=yuv420p${
+        hold > 0.001 ? `,tpad=stop_mode=clone:stop_duration=${hold.toFixed(3)}` : ""
+      },trim=0:${dur},setpts=PTS-STARTPTS[v${i}]`,
     );
     const audioSrc = silentInput.get(i) ?? i;
-    filters.push(
-      `[${audioSrc}:a]aresample=44100,aformat=sample_fmts=fltp:channel_layouts=stereo,apad,atrim=0:${dur},asetpts=PTS-STARTPTS[a${i}]`,
-    );
+    const voice = voiceInput.get(i);
+    if (voice === undefined) {
+      filters.push(`[${audioSrc}:a]${toStereo},apad,atrim=0:${dur},asetpts=PTS-STARTPTS[a${i}]`);
+    } else {
+      const delayMs = Math.round(VOICE_LEAD_IN_S * 1000);
+      filters.push(
+        `[${audioSrc}:a]${toStereo},volume=${AMBIENT_UNDER_VOICE},apad[amb${i}]`,
+        `[${voice}:a]${toStereo},adelay=${delayMs}|${delayMs},apad[vo${i}]`,
+        `[amb${i}][vo${i}]amix=inputs=2:duration=longest:normalize=0,atrim=0:${dur},asetpts=PTS-STARTPTS[a${i}]`,
+      );
+    }
     concatInputs.push(`[v${i}][a${i}]`);
   });
   filters.push(`${concatInputs.join("")}concat=n=${clips.length}:v=1:a=1[v][a]`);
@@ -124,5 +156,5 @@ export async function renderFinal(input: {
   );
 
   await run("ffmpeg", args);
-  return { durationSeconds: infos.reduce((sum, i) => sum + i.duration, 0) };
+  return { durationSeconds: durations.reduce((sum, d) => sum + d, 0) };
 }

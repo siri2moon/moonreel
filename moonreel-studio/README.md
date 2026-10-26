@@ -23,6 +23,8 @@ Vertical 9:16 for TikTok · Reels · Shorts, and 16:9 for YouTube. Powered by Me
 - **A consistent character.** Describe a character once and let Muse draw a reference image, or upload your own. Every scene is generated from that reference.
 - **Scene-by-scene production.** Each scene gets a keyframe and then an image-to-video clip. Progress updates live, and any single scene can be retried.
 - **Ready-to-post output.** FFmpeg normalises and joins the clips into one MP4 with embedded soft subtitles, plus a separate `.srt` file.
+- **Thumbnails in the channel's style.** Each niche picks a template (Impact, Cinematic or Boxed), an accent colour and a brand label. Muse draws a photo framed for the headline, and the worker lays the headline over it as a 1280×720 (or 1080×1920) JPEG.
+- **Captions for every platform.** After the render, a YouTube title, description with chapters and tags, plus TikTok, Instagram and Facebook captions are written from the script, each with a copy button.
 - **English and Vietnamese UI.** The language follows your browser (English when it prefers neither) and can be switched from the sidebar.
 - **Runs on your machine.** Next.js, Postgres and a background worker run locally. AI usage comes out of your own muse.ai account; there are no extra API fees.
 
@@ -69,6 +71,13 @@ Vertical 9:16 for TikTok · Reels · Shorts, and 16:9 for YouTube. Powered by Me
                     │
                     ▼
      FFmpeg: normalise · concatenate · subtitles  ──►  final.mp4 + captions.srt
+                    │
+                    ▼
+     Platform captions (chat): YouTube title · description · chapters · tags,
+                               TikTok · Instagram · Facebook · thumbnail headline
+                    │
+                    ▼
+     Thumbnail: Muse photo (or a scene keyframe) + niche template  ──►  thumbnail.jpg
 ```
 
 | Layer | Technology |
@@ -135,7 +144,7 @@ This starts:
 
 ```bash
 pnpm db:push    # create tables
-pnpm db:seed    # add 4 sample niches (safe to re-run)
+pnpm db:seed    # add 4 sample niches, plus your private ones (safe to re-run)
 ```
 
 ### 5. Connect your muse.ai account
@@ -206,8 +215,42 @@ All settings live in `moonreel-studio/.env`.
 | `MUSE2API_BASE_URL` | no | `http://localhost:18610` | Where the app reaches muse2api |
 | `MUSE_CONCURRENCY` | no | `1` | Scenes sent to Muse in parallel (1–4). muse2api drives a single browser, so keep `1` unless you run several instances. |
 | `STORAGE_DIR` | no | `~/.moonreel/storage` | Generated images, clips and final videos. **Keep it outside the project folder** (see [Troubleshooting](#troubleshooting)). |
+| `NICHES_DIR` | no | `~/.moonreel/niches` | Your private niches, one JSON file each (see [Private niches](#private-niches)). |
+| `CF_AIG_ACCOUNT_ID`, `CF_AIG_GATEWAY_ID` | no | – | Write scripts through Cloudflare AI Gateway (see [Scripts through Cloudflare AI Gateway](#scripts-through-cloudflare-ai-gateway)). Builds `https://gateway.ai.cloudflare.com/v1/{account}/{gateway}/compat` |
+| `CF_AIG_BASE_URL` | no | – | Overrides the whole `/compat` URL, for example with a custom domain |
+| `CF_AIG_TOKEN` | no | – | Cloudflare API token; enough on its own when the provider key is stored on the gateway (BYOK) |
+| `CF_AIG_PROVIDER_KEY` | no | – | Provider key when it is not stored on the gateway; the token then goes in `cf-aig-authorization` |
+| `CF_AIG_BYOK_ALIAS` | no | – | Alias of the stored provider key when it is not `default`. If unset and the gateway has exactly one stored key, its alias is picked up from the gateway's error |
+| `SCRIPT_MODEL` | no | `deepseek/deepseek-chat` | Script model on the gateway, as `provider/model` or `dynamic/<route>` |
+| `ELEVENLABS_API_KEY` | no | – | Only for niches with a narrator voice (see [One narrator voice](#one-narrator-voice-elevenlabs)). From elevenlabs.io → Developers → API keys. |
+| `ELEVENLABS_MODEL` | no | `eleven_multilingual_v2` | ElevenLabs model for the narrator. Use `eleven_flash_v2_5` for languages v2 does not cover, such as Vietnamese. |
 
 muse2api's own data (accounts, cookies, task history) is stored in `~/.moonreel/muse2api`, mounted by `docker-compose.yml`. Its timeouts are set there as well (`MUSE2API_IMAGE_TIMEOUT`, `MUSE2API_VIDEO_TIMEOUT`, `MUSE2API_CHAT_TIMEOUT`).
+
+### Scripts through Cloudflare AI Gateway
+
+By default Muse writes the scripts as well as the images and clips. Muse answers through muse2api, which scrapes the muse.ai page, so long replies can time out: scripts over 12 scenes are therefore written as an outline first and then in parts of 12.
+
+To have a regular LLM write the scripts and keep Muse for media only, set `CF_AIG_ACCOUNT_ID`, `CF_AIG_GATEWAY_ID` and `CF_AIG_TOKEN` (and `SCRIPT_MODEL` if you do not use DeepSeek), then restart the app and the worker. Scripts then come from the gateway's OpenAI-compatible `/compat/chat/completions` endpoint in a single reply, whatever their length; models, provider keys, caching and fallbacks are managed on Cloudflare.
+
+### Private niches
+
+The repository ships four sample niches (`scripts/default-niches.ts`). Niches for your own channels stay out of it: keep each one as a JSON file in `NICHES_DIR` (default `~/.moonreel/niches`), next to the rest of your data.
+
+- `pnpm niches:export` writes every niche you created in the app, except the samples, to that folder. Run it after editing a niche in **Settings** to keep the file current.
+- `pnpm db:seed` inserts the sample niches and every file in that folder, skipping slugs that already exist, so a fresh database gets your niches back.
+
+Fields match the niche form; `scriptInstructions` may be a string or an array of lines. Default characters are not exported, because their ids only exist in your database.
+
+### One narrator voice (ElevenLabs)
+
+Muse makes every clip with its own sound, so a long video built from many clips can switch voices from scene to scene. For documentary-style niches, give the niche a **narrator voice**:
+
+1. Pick a voice at elevenlabs.io → Voices and copy its voice ID. Commercial use, such as monetized YouTube, needs a paid ElevenLabs plan.
+2. Put `ELEVENLABS_API_KEY` in `.env` and restart the app and the worker.
+3. In the niche settings, paste the ID into **Narrator voice**.
+
+From then on, clips in that niche are generated with ambient sound only. At render time each scene's narration is read in that one voice, using the neighbouring lines for continuous intonation, and mixed over the clip's lowered sound. When a line runs longer than its clip, the last frame is held until the line ends. The audio is cached per line, so re-rendering or editing one scene only re-reads what changed.
 
 ## Usage
 
@@ -219,6 +262,8 @@ The interface is available in English and Vietnamese. It follows your browser's 
 4. **Review the script.** Muse writes it in 1–3 minutes and the page updates by itself. Edit any scene, reorder, add or remove scenes, then click **Approve & produce** (*Duyệt & sản xuất*).
 5. **Watch production.** Each scene takes about 2–4 minutes (keyframe, then clip). If a scene fails or looks wrong, use **Redo clip** (*Làm lại clip*) or **With image** (*Cả ảnh*) to redraw the keyframe as well. **Edit** (*Sửa*) lets you rewrite that scene's narration, visual description or camera first. If Muse declines a scene, the card says so and shows Muse's reply; soften the description and try again.
 6. **Download.** When every scene is done the video is rendered automatically. Download the MP4 and the `.srt` captions from the project page.
+7. **Post.** Under the video, **Captions** (*Caption*) holds a ready-to-paste title, description, tags and caption per platform. YouTube chapter times are measured on the rendered video, so they are rewritten after every render; **Rewrite captions** (*Viết lại caption*) asks for a new version. Realistic AI footage must be labelled when you upload (YouTube: *Altered content*; TikTok: *AI-generated content*).
+8. **Thumbnail.** Drawn right after the captions, in the niche's template. Change the headline (wrap words in `*stars*` for the accent colour), switch the background to any scene's image, or edit the photo description and **Draw a new photo** (*Vẽ ảnh mới*). A headline change only re-lays the text, so it takes a second. If Muse declines the photo, the scene the captions suggested is used and the card says why. Then **Download thumbnail** (*Tải thumbnail*).
 
 ### Tips for better results
 
@@ -236,7 +281,8 @@ The interface is available in English and Vietnamese. It follows your browser's 
 | `pnpm worker:watch` | Worker with auto-reload. Use only when no job is running, because a reload interrupts the clip in progress. |
 | `pnpm build` / `pnpm start` | Production build and server |
 | `pnpm db:push` | Apply the Drizzle schema to Postgres |
-| `pnpm db:seed` | Insert the sample niches; existing ones are skipped |
+| `pnpm db:seed` | Insert the sample niches and your private niche files; existing ones are skipped |
+| `pnpm niches:export` | Save the niches you created in the app as private niche files |
 | `pnpm typecheck` | TypeScript check |
 | `pnpm lint` | ESLint |
 
@@ -309,7 +355,8 @@ moonreel-studio/
 ├── docs/
 │   ├── ARCHITECTURE.md       Design, data model, flow, limits
 │   └── images/               README screenshots
-├── scripts/seed.ts           Sample niches
+├── scripts/default-niches.ts Sample niches shipped with the repo
+├── scripts/seed.ts           Inserts sample + private niches
 └── src/
     ├── app/
     │   ├── [lang]/           Pages (App Router), one tree per locale

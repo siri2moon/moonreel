@@ -7,9 +7,12 @@ import {
   Captions,
   Check,
   Clapperboard,
+  Copy,
   Download,
   Film,
   Image as ImageIcon,
+  ImagePlus,
+  Megaphone,
   Mic,
   Pencil,
   Plus,
@@ -27,17 +30,21 @@ import {
   approveAndProduce,
   deleteProject,
   editScene,
+  regeneratePosts,
   regenerateScript,
   rerender,
   retryScenes,
   saveScript,
+  updateThumbnail,
   type SceneInput,
+  type ThumbnailInput,
 } from "@/app/actions";
 import { StatusBadge } from "@/components/status-badge";
 import { Button, buttonClass, Card, ErrorNote, inputClass } from "@/components/ui";
 import { useI18n } from "@/i18n/client";
 import { isRefusal, refusalReply } from "@/lib/scene-errors";
 import type { ProjectView } from "@/lib/views";
+import type { SocialPosts } from "@/db/schema";
 
 const BUSY = new Set(["scripting", "producing", "rendering"]);
 const POLL_MS = 3_000;
@@ -72,7 +79,8 @@ export function ProjectEditor({ initial }: { initial: ProjectView }) {
 
   // Poll while a background job is running; pick up the fresh script once it lands.
   useEffect(() => {
-    if (!BUSY.has(view.status)) return;
+    const background = view.postsStatus === "writing" || view.thumbnailStatus === "drawing";
+    if (!BUSY.has(view.status) && !background) return;
     let alive = true;
     const timer = setInterval(async () => {
       try {
@@ -92,7 +100,7 @@ export function ProjectEditor({ initial }: { initial: ProjectView }) {
       alive = false;
       clearInterval(timer);
     };
-  }, [view.id, view.status]);
+  }, [view.id, view.status, view.postsStatus, view.thumbnailStatus]);
 
   const run = (fn: () => Promise<unknown>, optimistic?: Partial<ProjectView>) =>
     startTransition(async () => {
@@ -155,6 +163,15 @@ export function ProjectEditor({ initial }: { initial: ProjectView }) {
             run(() => retryScenes(view.id, ids, { newKeyframe }), { status: "producing", error: null })
           }
           onRender={() => run(() => rerender(view.id), { status: "rendering", error: null })}
+          onRegeneratePosts={() =>
+            run(() => regeneratePosts(view.id), { postsStatus: "writing", postsError: null })
+          }
+          onThumbnail={(input, newImage) =>
+            run(() => updateThumbnail(view.id, input, { newImage }), {
+              thumbnailStatus: "drawing",
+              thumbnailError: null,
+            })
+          }
           onEdit={(sceneId, input, newKeyframe) =>
             run(() => editScene(view.id, sceneId, input, { newKeyframe }), { status: "producing", error: null })
           }
@@ -453,12 +470,16 @@ function Production({
   pending,
   onRetry,
   onRender,
+  onRegeneratePosts,
+  onThumbnail,
   onEdit,
 }: {
   view: ProjectView;
   pending: boolean;
   onRetry: (ids: string[], newKeyframe: boolean) => void;
   onRender: () => void;
+  onRegeneratePosts: () => void;
+  onThumbnail: (input: ThumbnailInput, newImage: boolean) => void;
   onEdit: (sceneId: string, input: SceneInput, newKeyframe: boolean) => void;
 }) {
   const [editing, setEditing] = useState<Scene | null>(null);
@@ -505,6 +526,13 @@ function Production({
             </div>
           </div>
         </Card>
+      )}
+
+      {view.status === "done" && (
+        <>
+          <ThumbnailPanel view={view} pending={pending} onSubmit={onThumbnail} />
+          <PostsPanel view={view} pending={pending} onRegenerate={onRegeneratePosts} />
+        </>
       )}
 
       <section className="flex flex-col gap-5">
@@ -558,6 +586,272 @@ function Production({
           onSubmit={(input, newKeyframe) => onEdit(editing.id, input, newKeyframe)}
         />
       )}
+    </div>
+  );
+}
+
+function ThumbnailPanel({
+  view,
+  pending,
+  onSubmit,
+}: {
+  view: ProjectView;
+  pending: boolean;
+  onSubmit: (input: ThumbnailInput, newImage: boolean) => void;
+}) {
+  const { t } = useI18n();
+  const tt = t.project.thumbnail;
+  const spec = view.thumbnail;
+  const [draft, setDraft] = useState<ThumbnailInput | null>(() =>
+    spec ? { text: spec.text, prompt: spec.prompt, background: spec.background, scene: spec.scene } : null,
+  );
+  // The spec arrives with the captions; start the form from it the first time it shows up.
+  if (spec && !draft) {
+    setDraft({ text: spec.text, prompt: spec.prompt, background: spec.background, scene: spec.scene });
+  }
+  const drawing = view.thumbnailStatus === "drawing";
+  const vertical = view.aspectRatio === "9:16";
+  const busy = pending || drawing;
+  const withKeyframes = view.scenes.filter((s) => s.keyframeUrl);
+
+  return (
+    <Card className="flex flex-col gap-5 p-5 md:p-8">
+      <div className="flex flex-col gap-1">
+        <span className="flex items-center gap-2 text-[11px] font-semibold tracking-[0.2em] text-gold uppercase">
+          <ImageIcon className="size-3.5" /> {tt.eyebrow}
+        </span>
+        <h2 className="text-lg font-semibold tracking-tight">{tt.heading}</h2>
+      </div>
+
+      {!spec && (
+        <p className="text-sm text-muted">
+          {view.postsStatus === "writing" ? tt.waiting : tt.missing}
+        </p>
+      )}
+      {view.thumbnailStatus === "failed" && view.thumbnailError && <ErrorNote>{view.thumbnailError}</ErrorNote>}
+
+      {spec && draft && (
+        <div className={`grid gap-6 ${vertical ? "md:grid-cols-[260px_1fr]" : "lg:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)]"}`}>
+          <div className="flex flex-col gap-3">
+            <div
+              className={`relative overflow-hidden rounded-xl bg-black/40 ring-1 ring-gold/25 ${
+                vertical ? "aspect-[9/16]" : "aspect-video"
+              }`}
+            >
+              {spec.url && (
+                // eslint-disable-next-line @next/next/no-img-element -- local file route, already sized
+                <img src={spec.url} alt={tt.alt} className={`size-full object-cover ${drawing ? "opacity-40" : ""}`} />
+              )}
+              {drawing && (
+                <span className="absolute inset-0 flex animate-pulse items-center justify-center text-sm text-muted">
+                  {tt.drawing}
+                </span>
+              )}
+            </div>
+            {spec.url && !drawing && (
+              <a href={`${spec.url}&download`} className={`${buttonClass("primary", "md")} self-start`}>
+                <Download /> {tt.download}
+              </a>
+            )}
+            {spec.note && (
+              <p className="text-xs text-subtle">
+                {tt.fellBack(spec.scene)} <span className="italic">“{spec.note}”</span>
+              </p>
+            )}
+          </div>
+
+          <div className="flex flex-col gap-4">
+            <label className="flex flex-col gap-1.5">
+              <span className="text-xs font-medium text-muted">{tt.text}</span>
+              <input
+                value={draft.text}
+                maxLength={80}
+                onChange={(e) => setDraft({ ...draft, text: e.target.value })}
+                className={inputClass}
+              />
+              <span className="text-xs text-subtle">{tt.textHint}</span>
+            </label>
+            <label className="flex flex-col gap-1.5">
+              <span className="text-xs font-medium text-muted">{tt.background}</span>
+              <select
+                value={draft.background === "ai" ? "ai" : String(draft.scene)}
+                onChange={(e) =>
+                  setDraft(
+                    e.target.value === "ai"
+                      ? { ...draft, background: "ai" }
+                      : { ...draft, background: "scene", scene: Number(e.target.value) },
+                  )
+                }
+                className={inputClass}
+              >
+                <option value="ai">{tt.aiImage}</option>
+                {withKeyframes.map((s) => (
+                  <option key={s.id} value={s.index + 1}>
+                    {tt.sceneImage(s.index + 1)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {draft.background === "ai" && (
+              <label className="flex flex-col gap-1.5">
+                <span className="text-xs font-medium text-muted">{tt.prompt}</span>
+                <textarea
+                  rows={4}
+                  value={draft.prompt}
+                  onChange={(e) => setDraft({ ...draft, prompt: e.target.value })}
+                  className={inputClass}
+                />
+              </label>
+            )}
+            <div className="flex flex-wrap gap-2">
+              <Button disabled={busy || !draft.text.trim()} onClick={() => onSubmit(draft, false)}>
+                <Check /> {tt.apply}
+              </Button>
+              {draft.background === "ai" && (
+                <Button variant="secondary" disabled={busy || !draft.prompt.trim()} onClick={() => onSubmit(draft, true)}>
+                  <ImagePlus /> {tt.newImage}
+                </Button>
+              )}
+            </div>
+            <p className="text-xs text-subtle">{tt.styleHint}</p>
+          </div>
+        </div>
+      )}
+    </Card>
+  );
+}
+
+type Platform = keyof SocialPosts;
+const PLATFORMS: { id: Platform; label: string }[] = [
+  { id: "youtube", label: "YouTube" },
+  { id: "tiktok", label: "TikTok" },
+  { id: "instagram", label: "Instagram" },
+  { id: "facebook", label: "Facebook" },
+];
+
+function timestamp(seconds: number) {
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = String(Math.floor(seconds % 60)).padStart(2, "0");
+  return h > 0 ? `${h}:${String(m).padStart(2, "0")}:${s}` : `${m}:${s}`;
+}
+
+/** The description with chapters, placed above the closing hashtag line when there is one. */
+function youtubeDescription({ description, chapters }: SocialPosts["youtube"]) {
+  if (chapters.length === 0) return description;
+  const list = chapters.map((c) => `${timestamp(c.start)} ${c.title}`).join("\n");
+  const lines = description.split("\n");
+  const last = lines[lines.length - 1]?.trim() ?? "";
+  if (last.startsWith("#") && lines.length > 1) {
+    return `${lines.slice(0, -1).join("\n").trimEnd()}\n\n${list}\n\n${last}`;
+  }
+  return `${description}\n\n${list}`;
+}
+
+function PostsPanel({
+  view,
+  pending,
+  onRegenerate,
+}: {
+  view: ProjectView;
+  pending: boolean;
+  onRegenerate: () => void;
+}) {
+  const { t } = useI18n();
+  const [platform, setPlatform] = useState<Platform>(view.aspectRatio === "16:9" ? "youtube" : "tiktok");
+  const { posts, postsStatus } = view;
+  const writing = postsStatus === "writing";
+
+  const fields: { label: string; text: string; limit?: number }[] = [];
+  if (posts) {
+    if (platform === "youtube") {
+      fields.push(
+        { label: t.project.posts.title, text: posts.youtube.title, limit: 100 },
+        { label: t.project.posts.description, text: youtubeDescription(posts.youtube), limit: 5000 },
+        { label: t.project.posts.tags, text: posts.youtube.tags.join(", "), limit: 500 },
+      );
+    } else {
+      fields.push({ label: t.project.posts.caption, text: posts[platform].caption, limit: 2200 });
+    }
+  }
+
+  return (
+    <Card className="flex flex-col gap-5 p-5 md:p-8">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="flex flex-col gap-1">
+          <span className="flex items-center gap-2 text-[11px] font-semibold tracking-[0.2em] text-gold uppercase">
+            <Megaphone className="size-3.5" /> {t.project.posts.eyebrow}
+          </span>
+          <h2 className="text-lg font-semibold tracking-tight">{t.project.posts.heading}</h2>
+        </div>
+        {!writing && (
+          <Button variant="ghost" size="sm" disabled={pending} onClick={onRegenerate}>
+            <RotateCcw /> {posts ? t.project.posts.rewrite : t.project.posts.write}
+          </Button>
+        )}
+      </div>
+
+      {writing && <p className="animate-pulse text-sm text-muted">{t.project.posts.writing}</p>}
+      {postsStatus === "failed" && view.postsError && <ErrorNote>{view.postsError}</ErrorNote>}
+      {!writing && !posts && postsStatus !== "failed" && (
+        <p className="text-sm text-muted">{t.project.posts.empty}</p>
+      )}
+
+      {posts && (
+        <>
+          <div className="flex flex-wrap gap-2">
+            {PLATFORMS.map((p) => (
+              <Button
+                key={p.id}
+                size="sm"
+                variant={platform === p.id ? "primary" : "secondary"}
+                onClick={() => setPlatform(p.id)}
+              >
+                {p.label}
+              </Button>
+            ))}
+          </div>
+          <div className={`flex flex-col gap-4 ${writing ? "opacity-50" : ""}`}>
+            {fields.map((f) => (
+              <CopyField key={`${platform}-${f.label}`} {...f} />
+            ))}
+          </div>
+          <p className="text-xs text-subtle">{t.project.posts.aiLabel}</p>
+        </>
+      )}
+    </Card>
+  );
+}
+
+function CopyField({ label, text, limit }: { label: string; text: string; limit?: number }) {
+  const { t } = useI18n();
+  const [copied, setCopied] = useState(false);
+  const over = limit !== undefined && text.length > limit;
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // Clipboard blocked (e.g. insecure origin): the text is still selectable by hand.
+    }
+  };
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex items-center justify-between gap-3">
+        <span className="text-xs font-medium text-muted">
+          {label}
+          {limit !== undefined && (
+            <span className={`ml-2 ${over ? "text-danger" : "text-subtle"}`}>
+              {text.length}/{limit}
+            </span>
+          )}
+        </span>
+        <Button variant="secondary" size="sm" onClick={copy}>
+          {copied ? <Check /> : <Copy />} {copied ? t.project.posts.copied : t.project.posts.copy}
+        </Button>
+      </div>
+      <div className={`${inputClass} max-h-72 overflow-y-auto whitespace-pre-wrap select-text`}>{text}</div>
     </div>
   );
 }

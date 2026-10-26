@@ -2,6 +2,7 @@ import { relations } from "drizzle-orm";
 import {
   type AnyPgColumn,
   integer,
+  jsonb,
   pgEnum,
   pgTable,
   text,
@@ -27,6 +28,40 @@ export const projectStatusEnum = pgEnum("project_status", [
   "done",
   "failed",
 ]);
+
+export const postsStatusEnum = pgEnum("posts_status", ["none", "writing", "ready", "failed"]);
+
+/** Ready-to-paste captions for each platform, written after the video is rendered. */
+export type SocialPosts = {
+  youtube: {
+    title: string;
+    description: string;
+    tags: string[];
+    /** Chapter start in seconds, measured on the rendered video. Empty for vertical videos. */
+    chapters: { start: number; title: string }[];
+  };
+  tiktok: { caption: string };
+  instagram: { caption: string };
+  facebook: { caption: string };
+};
+
+export const thumbnailStatusEnum = pgEnum("thumbnail_status", ["none", "drawing", "ready", "failed"]);
+
+/** What the thumbnail shows. The look (template, accent, brand) comes from the niche. */
+export type ThumbnailSpec = {
+  /** Headline; words wrapped in *stars* are drawn in the accent colour. */
+  text: string;
+  /** English description of the background image Muse draws. */
+  prompt: string;
+  /** "ai": a dedicated Muse image; "scene": the keyframe of `scene`. */
+  background: "ai" | "scene";
+  /** 1-based scene whose keyframe is used for "scene", and as the fallback when Muse declines. */
+  scene: number;
+  basePath: string | null;
+  path: string | null;
+  /** Set when the background fell back to a keyframe, with Muse's reason. */
+  note: string | null;
+};
 
 export const sceneStatusEnum = pgEnum("scene_status", [
   "pending",
@@ -57,6 +92,13 @@ export const niches = pgTable("niches", {
   language: text("language").notNull().default("Vietnamese"),
   icon: text("icon").notNull().default("✦"),
   defaultAspectRatio: aspectRatioEnum("default_aspect_ratio").notNull().default("9:16"),
+  // ElevenLabs voice for an off-screen narrator. When set, clips keep only ambient sound
+  // and the whole narration is read in this one voice at render time.
+  narratorVoiceId: text("narrator_voice_id"),
+  /** Thumbnail template (see THUMBNAIL_STYLES), accent colour and brand label shared by the niche. */
+  thumbnailStyle: text("thumbnail_style").notNull().default("impact"),
+  thumbnailAccent: text("thumbnail_accent").notNull().default("#FFC23D"),
+  thumbnailBrand: text("thumbnail_brand").notNull().default(""),
   defaultCharacterId: uuid("default_character_id").references((): AnyPgColumn => characters.id, {
     onDelete: "set null",
   }),
@@ -89,6 +131,12 @@ export const projects = pgTable("projects", {
   error: text("error"),
   finalVideoPath: text("final_video_path"),
   captionsPath: text("captions_path"),
+  posts: jsonb("posts").$type<SocialPosts>(),
+  postsStatus: postsStatusEnum("posts_status").notNull().default("none"),
+  postsError: text("posts_error"),
+  thumbnail: jsonb("thumbnail").$type<ThumbnailSpec>(),
+  thumbnailStatus: thumbnailStatusEnum("thumbnail_status").notNull().default("none"),
+  thumbnailError: text("thumbnail_error"),
   ...timestamps,
 });
 

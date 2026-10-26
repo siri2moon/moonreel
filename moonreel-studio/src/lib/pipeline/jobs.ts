@@ -1,21 +1,43 @@
 import { asc, eq, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { characters, projects, scenes, type Character } from "@/db/schema";
+import {
+  characters,
+  projects,
+  scenes,
+  type Character,
+  type SocialPosts,
+  type ThumbnailSpec,
+} from "@/db/schema";
 import { getProvider } from "@/lib/providers";
+import { gatewayChat, gatewayConfigured } from "@/lib/providers/gateway";
 import { MuseRefusedError } from "@/lib/providers/muse2api";
 import { REFUSED_PREFIX } from "@/lib/scene-errors";
-import { enqueueRender } from "@/lib/queue";
-import { resolveKey, saveFile, toDataUrl } from "@/lib/storage";
+import { enqueuePosts, enqueueRender, enqueueThumbnail } from "@/lib/queue";
+import { readFileByKey, resolveKey, saveFile, toDataUrl } from "@/lib/storage";
+import type { z } from "zod";
 import {
   buildCharacterReferencePrompt,
   buildKeyframePrompt,
+  buildOutlinePrompt,
+  buildPostsPrompt,
   buildRepairPrompt,
+  buildScriptPartPrompt,
   buildScriptPrompt,
+  buildThumbnailPrompt,
   buildVideoPrompt,
-  parseScript,
+  outlineSchema,
+  parseReply,
+  POSTS_SHAPE,
+  postsSchema,
+  type PostsReply,
+  SCRIPT_PART_SCENES,
+  scenesSchema,
+  scriptSchema,
   type Script,
 } from "./prompts";
 import { renderFinal } from "./render";
+import { composeThumbnail, THUMBNAIL_STYLES, type ThumbnailStyle } from "./thumbnail";
+import { synthesizeNarration } from "./voiceover";
 
 function message(err: unknown) {
   return err instanceof Error ? err.message : String(err);
@@ -40,6 +62,67 @@ async function characterRef(character: Character | null) {
   return toDataUrl(character.referenceImagePath);
 }
 
+/**
+ * One chat turn that must come back as JSON matching `schema`. An unparseable reply gets one
+ * repair turn; a reply that parses but fails `check` (e.g. too few scenes) counts as a failed
+ * attempt, so withRetry asks again.
+ */
+async function chatJson<T>(
+  label: string,
+  prompt: string,
+  schema: z.ZodType<T>,
+  shape: string,
+  check?: (value: T) => void,
+) {
+  // Scripts go through Cloudflare AI Gateway when it is configured; Muse then only makes media.
+  const chat = gatewayConfigured() ? gatewayChat : (p: string) => getProvider().chat(p);
+  return withRetry(label, async () => {
+    const raw = await chat(prompt);
+    let value: T;
+    try {
+      value = parseReply(raw, schema);
+    } catch (err) {
+      console.warn(`[${label}] unparseable reply: ${message(err)}\n${raw.slice(0, 2000)}`);
+      value = parseReply(await chat(buildRepairPrompt(raw, message(err), shape)), schema);
+    }
+    check?.(value);
+    return value;
+  });
+}
+
+const SCRIPT_SHAPE = '{"title": string, "scenes": [{"narration": string, "visualPrompt": string, "camera": string}]}';
+const SCENES_SHAPE = '{"scenes": [{"narration": string, "visualPrompt": string, "camera": string}]}';
+const OUTLINE_SHAPE = '{"title": string, "beats": [string]}';
+
+async function writeScript(input: Parameters<typeof buildScriptPrompt>[0]): Promise<Script> {
+  // Gateway models answer long scripts in one turn; Muse needs them in parts (see SCRIPT_PART_SCENES).
+  if (gatewayConfigured() || input.niche.sceneCount <= SCRIPT_PART_SCENES) {
+    return chatJson("script", buildScriptPrompt(input), scriptSchema, SCRIPT_SHAPE);
+  }
+
+  const outline = await chatJson("outline", buildOutlinePrompt(input), outlineSchema, OUTLINE_SHAPE);
+  outline.beats = outline.beats.slice(0, input.niche.sceneCount);
+
+  // Parts run one after another on purpose: each continues from the narration of the one
+  // before it. These are Muse chat turns, not DB queries.
+  const scenes: Script["scenes"] = [];
+  for (let from = 1; from <= outline.beats.length; from += SCRIPT_PART_SCENES) {
+    const to = Math.min(from + SCRIPT_PART_SCENES - 1, outline.beats.length);
+    const expected = to - from + 1;
+    const part = await chatJson(
+      `script ${from}-${to}`,
+      buildScriptPartPrompt({ ...input, outline, from, to, previous: scenes.slice(-3).map((s) => s.narration) }),
+      scenesSchema,
+      SCENES_SHAPE,
+      (p) => {
+        if (p.scenes.length < expected) throw new Error(`expected ${expected} scenes, got ${p.scenes.length}`);
+      },
+    );
+    scenes.push(...part.scenes.slice(0, expected));
+  }
+  return { title: outline.title, scenes };
+}
+
 export async function generateScript(projectId: string) {
   const project = await db.query.projects.findFirst({
     where: eq(projects.id, projectId),
@@ -48,25 +131,12 @@ export async function generateScript(projectId: string) {
   if (!project) return;
 
   try {
-    const provider = getProvider();
-    const raw = await withRetry("script", () =>
-      provider.chat(
-        buildScriptPrompt({
-          niche: project.niche,
-          character: project.character,
-          topic: project.topic,
-          aspectRatio: project.aspectRatio,
-        }),
-      ),
-    );
-
-    let script: Script;
-    try {
-      script = parseScript(raw);
-    } catch (err) {
-      console.warn(`[script] unparseable reply for ${projectId}: ${message(err)}\n${raw.slice(0, 2000)}`);
-      script = parseScript(await provider.chat(buildRepairPrompt(raw, message(err))));
-    }
+    const script = await writeScript({
+      niche: project.niche,
+      character: project.character,
+      topic: project.topic,
+      aspectRatio: project.aspectRatio,
+    });
 
     await db.transaction(async (tx) => {
       await tx.delete(scenes).where(eq(scenes.projectId, projectId));
@@ -187,7 +257,7 @@ export async function produceScene(sceneId: string) {
 export async function renderProject(projectId: string) {
   const project = await db.query.projects.findFirst({
     where: eq(projects.id, projectId),
-    with: { scenes: { orderBy: [asc(scenes.index)] } },
+    with: { niche: true, scenes: { orderBy: [asc(scenes.index)] } },
   });
   if (!project || project.scenes.length === 0) return;
   if (project.scenes.some((s) => s.status !== "done" || !s.clipPath)) return;
@@ -200,20 +270,251 @@ export async function renderProject(projectId: string) {
   try {
     const finalKey = `projects/${projectId}/final.mp4`;
     const srtKey = `projects/${projectId}/captions.srt`;
+    const voiceId = project.niche.narratorVoiceId;
+    const voices = voiceId
+      ? await synthesizeNarration(voiceId, project.scenes.map((s) => s.narration))
+      : [];
     await renderFinal({
-      clips: project.scenes.map((s) => ({ file: resolveKey(s.clipPath!), narration: s.narration })),
+      clips: project.scenes.map((s, i) => ({
+        file: resolveKey(s.clipPath!),
+        narration: s.narration,
+        voice: voices[i],
+      })),
       aspectRatio: project.aspectRatio,
       outFile: resolveKey(finalKey),
       srtFile: resolveKey(srtKey),
     });
     await db
       .update(projects)
-      .set({ status: "done", finalVideoPath: finalKey, captionsPath: srtKey })
+      .set({
+        status: "done",
+        finalVideoPath: finalKey,
+        captionsPath: srtKey,
+        postsStatus: "writing",
+        postsError: null,
+      })
       .where(eq(projects.id, projectId));
   } catch (err) {
     await db
       .update(projects)
       .set({ status: "failed", error: `Render failed: ${message(err)}` })
+      .where(eq(projects.id, projectId));
+    return;
+  }
+  // Chapter times come from the rendered video, so captions are rewritten after every render.
+  await enqueuePosts(projectId);
+}
+
+const SRT_START = /^(\d+):(\d\d):(\d\d),(\d{3}) -->/gm;
+const SRT_END = /--> (\d+):(\d\d):(\d\d),(\d{3})/g;
+
+function srtSeconds(m: RegExpMatchArray) {
+  return Number(m[1]) * 3600 + Number(m[2]) * 60 + Number(m[3]) + Number(m[4]) / 1000;
+}
+
+/** Scene start times and total length, read from the .srt the render wrote (one cue per scene). */
+async function sceneTimes(captionsPath: string | null, sceneCount: number, sceneSeconds: number) {
+  const srt = captionsPath ? await readFileByKey(captionsPath).then(String, () => "") : "";
+  const starts = [...srt.matchAll(SRT_START)].map(srtSeconds);
+  const ends = [...srt.matchAll(SRT_END)].map(srtSeconds);
+  if (starts.length === sceneCount && ends.length > 0) return { starts, total: ends[ends.length - 1] };
+  return {
+    starts: Array.from({ length: sceneCount }, (_, i) => i * sceneSeconds),
+    total: sceneCount * sceneSeconds,
+  };
+}
+
+// YouTube only shows chapters when the first starts at 0:00, there are at least 3 and each
+// lasts at least 10 seconds.
+const MIN_CHAPTERS = 3;
+const MIN_CHAPTER_S = 10;
+const YOUTUBE_TITLE_MAX_CHARS = 100;
+const YOUTUBE_TAGS_MAX_CHARS = 500;
+
+function toChapters(chapters: PostsReply["youtube"]["chapters"], starts: number[], total: number) {
+  const timed = chapters
+    .map((c) => ({ start: starts[Math.min(Math.max(c.scene, 1), starts.length) - 1], title: c.title.trim() }))
+    .sort((a, b) => a.start - b.start);
+  if (timed.length > 0) timed[0].start = 0;
+  const kept: SocialPosts["youtube"]["chapters"] = [];
+  for (const c of timed) {
+    const prev = kept[kept.length - 1];
+    if (prev && c.start - prev.start < MIN_CHAPTER_S) continue;
+    if (total - c.start < MIN_CHAPTER_S) continue;
+    kept.push({ start: Math.floor(c.start), title: c.title });
+  }
+  return kept.length >= MIN_CHAPTERS ? kept : [];
+}
+
+function toTags(tags: string[]) {
+  const seen = new Set<string>();
+  const kept: string[] = [];
+  let length = 0;
+  for (const raw of tags) {
+    const tag = raw.replace(/^#/, "").trim();
+    const key = tag.toLowerCase();
+    if (!tag || seen.has(key)) continue;
+    // YouTube counts the separating commas too.
+    const next = length + tag.length + (kept.length ? 1 : 0);
+    if (next > YOUTUBE_TAGS_MAX_CHARS) break;
+    seen.add(key);
+    kept.push(tag);
+    length = next;
+  }
+  return kept;
+}
+
+export async function generatePosts(projectId: string) {
+  const project = await db.query.projects.findFirst({
+    where: eq(projects.id, projectId),
+    with: { niche: true, scenes: { orderBy: [asc(scenes.index)] } },
+  });
+  if (!project || project.scenes.length === 0) return;
+
+  await db
+    .update(projects)
+    .set({ postsStatus: "writing", postsError: null })
+    .where(eq(projects.id, projectId));
+
+  try {
+    const { starts, total } = await sceneTimes(
+      project.captionsPath,
+      project.scenes.length,
+      project.niche.sceneSeconds,
+    );
+    const reply = await chatJson(
+      "posts",
+      buildPostsPrompt({
+        niche: project.niche,
+        title: project.title,
+        topic: project.topic,
+        aspectRatio: project.aspectRatio,
+        durationSeconds: total,
+        narration: project.scenes.map((s) => s.narration),
+      }),
+      postsSchema,
+      POSTS_SHAPE,
+      (r) => {
+        if (r.youtube.title.length > YOUTUBE_TITLE_MAX_CHARS) {
+          throw new Error(`YouTube title is ${r.youtube.title.length} characters`);
+        }
+      },
+    );
+    const posts: SocialPosts = {
+      youtube: {
+        title: reply.youtube.title.trim(),
+        description: reply.youtube.description.trim(),
+        tags: toTags(reply.youtube.tags),
+        chapters: project.aspectRatio === "16:9" ? toChapters(reply.youtube.chapters, starts, total) : [],
+      },
+      tiktok: { caption: reply.tiktok.caption.trim() },
+      instagram: { caption: reply.instagram.caption.trim() },
+      facebook: { caption: reply.facebook.caption.trim() },
+    };
+    // The thumbnail is drawn once; later caption rewrites keep it (and any edits to it).
+    const firstThumbnail = !project.thumbnail;
+    const thumbnail: ThumbnailSpec = project.thumbnail ?? {
+      text: reply.thumbnail.text.trim(),
+      prompt: reply.thumbnail.prompt.trim(),
+      background: "ai",
+      scene: Math.min(Math.max(reply.thumbnail.scene, 1), project.scenes.length),
+      basePath: null,
+      path: null,
+      note: null,
+    };
+    await db
+      .update(projects)
+      .set({
+        posts,
+        postsStatus: "ready",
+        postsError: null,
+        thumbnail,
+        ...(firstThumbnail ? { thumbnailStatus: "drawing" as const, thumbnailError: null } : {}),
+      })
+      .where(eq(projects.id, projectId));
+    if (firstThumbnail) await enqueueThumbnail(projectId);
+  } catch (err) {
+    await db
+      .update(projects)
+      .set({ postsStatus: "failed", postsError: message(err) })
+      .where(eq(projects.id, projectId));
+  }
+}
+
+function thumbnailStyle(value: string): ThumbnailStyle {
+  return (THUMBNAIL_STYLES as readonly string[]).includes(value) ? (value as ThumbnailStyle) : "impact";
+}
+
+/**
+ * Draws the background (a dedicated Muse image, or a scene keyframe) when there is none yet,
+ * then lays the niche's template over it. Editing only the headline reuses the background.
+ */
+export async function generateThumbnail(projectId: string) {
+  const project = await db.query.projects.findFirst({
+    where: eq(projects.id, projectId),
+    with: { niche: true, character: true, scenes: { orderBy: [asc(scenes.index)] } },
+  });
+  if (!project?.thumbnail) return;
+  const { niche, character } = project;
+  const spec = { ...project.thumbnail };
+
+  await db
+    .update(projects)
+    .set({ thumbnailStatus: "drawing", thumbnailError: null })
+    .where(eq(projects.id, projectId));
+
+  try {
+    const keyframeOf = (scene: number) =>
+      project.scenes[scene - 1]?.keyframePath ?? project.scenes.find((s) => s.keyframePath)?.keyframePath;
+
+    if (!spec.basePath) {
+      spec.note = null;
+      if (spec.background === "scene") {
+        spec.basePath = keyframeOf(spec.scene) ?? null;
+      } else {
+        try {
+          const reference = await characterRef(character);
+          const image = await withRetry("thumbnail", () =>
+            getProvider().generateImage({
+              prompt: buildThumbnailPrompt({
+                niche,
+                character,
+                prompt: spec.prompt,
+                aspectRatio: project.aspectRatio,
+              }),
+              aspectRatio: project.aspectRatio,
+              referenceImage: reference,
+            }),
+          );
+          spec.basePath = await saveFile(`projects/${projectId}/thumbnail-base${image.ext}`, image.data);
+        } catch (err) {
+          // Muse sometimes declines dramatic prompts; a keyframe still makes a good thumbnail.
+          const fallback = keyframeOf(spec.scene);
+          if (!fallback) throw err;
+          spec.basePath = fallback;
+          spec.note = err instanceof MuseRefusedError ? err.reply : message(err);
+        }
+      }
+      if (!spec.basePath) throw new Error("No image to build the thumbnail from");
+    }
+
+    const jpeg = await composeThumbnail({
+      base: await readFileByKey(spec.basePath),
+      headline: spec.text,
+      style: thumbnailStyle(niche.thumbnailStyle),
+      accent: niche.thumbnailAccent,
+      brand: niche.thumbnailBrand,
+      aspectRatio: project.aspectRatio,
+    });
+    spec.path = await saveFile(`projects/${projectId}/thumbnail.jpg`, jpeg);
+    await db
+      .update(projects)
+      .set({ thumbnail: spec, thumbnailStatus: "ready", thumbnailError: null })
+      .where(eq(projects.id, projectId));
+  } catch (err) {
+    await db
+      .update(projects)
+      .set({ thumbnail: spec, thumbnailStatus: "failed", thumbnailError: message(err) })
       .where(eq(projects.id, projectId));
   }
 }

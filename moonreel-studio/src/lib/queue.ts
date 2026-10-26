@@ -6,6 +6,8 @@ export const QUEUES = {
   characterReference: "character-reference",
   sceneProduce: "scene-produce",
   projectRender: "project-render",
+  projectPosts: "project-posts",
+  projectThumbnail: "project-thumbnail",
 } as const;
 
 export interface ScriptGenerateJob {
@@ -18,6 +20,12 @@ export interface SceneProduceJob {
   sceneId: string;
 }
 export interface ProjectRenderJob {
+  projectId: string;
+}
+export interface ProjectPostsJob {
+  projectId: string;
+}
+export interface ProjectThumbnailJob {
   projectId: string;
 }
 
@@ -40,6 +48,16 @@ async function createBoss() {
     policy: "short",
     retryLimit: 1,
     expireInSeconds: 20 * 60,
+  });
+  await boss.createQueue(QUEUES.projectThumbnail, {
+    policy: "short",
+    retryLimit: 1,
+    expireInSeconds: 15 * 60,
+  });
+  await boss.createQueue(QUEUES.projectPosts, {
+    policy: "short",
+    retryLimit: 1,
+    expireInSeconds: 10 * 60,
   });
   return boss;
 }
@@ -75,6 +93,20 @@ export async function enqueueScenes(sceneIds: string[]) {
 export async function enqueueRender(projectId: string) {
   const boss = await getBoss();
   await boss.send(QUEUES.projectRender, { projectId } satisfies ProjectRenderJob, {
+    singletonKey: projectId,
+  });
+}
+
+export async function enqueuePosts(projectId: string) {
+  const boss = await getBoss();
+  await boss.send(QUEUES.projectPosts, { projectId } satisfies ProjectPostsJob, {
+    singletonKey: projectId,
+  });
+}
+
+export async function enqueueThumbnail(projectId: string) {
+  const boss = await getBoss();
+  await boss.send(QUEUES.projectThumbnail, { projectId } satisfies ProjectThumbnailJob, {
     singletonKey: projectId,
   });
 }

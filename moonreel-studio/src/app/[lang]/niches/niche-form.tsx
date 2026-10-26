@@ -1,11 +1,22 @@
 "use client";
 
-import { Clapperboard, Monitor, Palette, ScrollText, Smartphone, Sparkles, Trash } from "lucide-react";
+import {
+  Clapperboard,
+  ImageIcon,
+  Monitor,
+  Palette,
+  ScrollText,
+  Smartphone,
+  Sparkles,
+  Trash,
+} from "lucide-react";
 import { useState, useTransition, type ReactNode } from "react";
 import { deleteNiche, saveNiche } from "@/app/actions";
 import type { Niche } from "@/db/schema";
 import { Button, Card, ErrorNote, Field, inputClass } from "@/components/ui";
 import { useI18n } from "@/i18n/client";
+import { ThumbnailPreview } from "@/components/thumbnail-preview";
+import { THUMBNAIL_STYLES, type ThumbnailStyle } from "@/lib/thumbnail-styles";
 
 const ICONS = ["💰", "🔭", "🌙", "🤖", "😂", "🍜", "💪", "✈️", "📚", "🎮", "💄", "🐾", "🧠", "⚽", "🎵", "✦"];
 
@@ -43,6 +54,13 @@ export function NicheForm({ niche, characters }: { niche?: Niche; characters: Ch
   const { t } = useI18n();
   const f = t.nicheForm;
   const [icon, setIcon] = useState(niche?.icon ?? "✦");
+  const [thumbStyle, setThumbStyle] = useState<ThumbnailStyle>(
+    (THUMBNAIL_STYLES as readonly string[]).includes(niche?.thumbnailStyle ?? "")
+      ? (niche!.thumbnailStyle as ThumbnailStyle)
+      : "impact",
+  );
+  const [accent, setAccent] = useState(niche?.thumbnailAccent ?? "#FFC23D");
+  const [brand, setBrand] = useState(niche?.thumbnailBrand ?? "");
   const [deleting, startDelete] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const save = saveNiche.bind(null, niche?.id ?? null);
@@ -132,6 +150,14 @@ export function NicheForm({ niche, characters }: { niche?: Niche; characters: Ch
             <input name="language" required defaultValue={niche?.language ?? "Vietnamese"} className={inputClass} />
           </Field>
         </div>
+        <Field label={f.narratorVoice} hint={f.narratorVoiceHint}>
+          <input
+            name="narratorVoiceId"
+            defaultValue={niche?.narratorVoiceId ?? ""}
+            className={`${inputClass} font-mono`}
+            placeholder="voice ID from elevenlabs.io → Voices"
+          />
+        </Field>
       </Section>
 
       <Section icon={<Palette />} title={f.visuals} description={f.visualsHint}>
@@ -153,6 +179,65 @@ export function NicheForm({ niche, characters }: { niche?: Niche; characters: Ch
             ))}
           </select>
         </Field>
+      </Section>
+
+      <Section icon={<ImageIcon />} title={f.thumbnail} description={f.thumbnailHint}>
+        <fieldset className="flex flex-col gap-2">
+          <legend className="mb-2 text-[13px] font-medium">{f.thumbnailStyle}</legend>
+          <div className="grid gap-3 sm:grid-cols-3">
+            {THUMBNAIL_STYLES.map((value) => (
+              <label
+                key={value}
+                className="flex cursor-pointer flex-col gap-2.5 rounded-xl frost p-2.5 transition has-checked:shadow-[inset_0_0_0_1px_rgb(214_183_131/0.6),0_0_30px_-10px_rgb(214_183_131/0.6)] has-checked:bg-gold/[0.07]"
+              >
+                <input
+                  type="radio"
+                  name="thumbnailStyle"
+                  value={value}
+                  checked={thumbStyle === value}
+                  onChange={() => setThumbStyle(value)}
+                  className="sr-only"
+                />
+                <ThumbnailPreview style={value} accent={accent} brand={brand} headline={f.thumbnailSample} />
+                <span className="px-1">
+                  <span className="block text-sm font-medium">{f.thumbnailStyles[value].title}</span>
+                  <span className="block text-xs text-subtle">{f.thumbnailStyles[value].sub}</span>
+                </span>
+              </label>
+            ))}
+          </div>
+        </fieldset>
+        <div className="grid gap-5 md:grid-cols-2">
+          <Field label={f.thumbnailAccent} hint={f.thumbnailAccentHint}>
+            <div className="flex items-center gap-2">
+              <input
+                type="color"
+                value={accent}
+                onChange={(e) => setAccent(e.target.value.toUpperCase())}
+                className="h-10 w-12 shrink-0 cursor-pointer rounded-lg border-0 bg-transparent p-0"
+                aria-label={f.thumbnailAccent}
+              />
+              <input
+                name="thumbnailAccent"
+                value={accent}
+                onChange={(e) => setAccent(e.target.value)}
+                pattern="#[0-9a-fA-F]{6}"
+                required
+                className={inputClass}
+              />
+            </div>
+          </Field>
+          <Field label={f.thumbnailBrand} hint={f.thumbnailBrandHint}>
+            <input
+              name="thumbnailBrand"
+              value={brand}
+              onChange={(e) => setBrand(e.target.value)}
+              maxLength={32}
+              className={inputClass}
+              placeholder="My Channel"
+            />
+          </Field>
+        </div>
       </Section>
 
       <Section icon={<Clapperboard />} title={f.production} description={f.productionHint}>
@@ -189,7 +274,7 @@ export function NicheForm({ niche, characters }: { niche?: Niche; characters: Ch
               name="sceneCount"
               type="number"
               min={1}
-              max={20}
+              max={40}
               required
               defaultValue={niche?.sceneCount ?? 6}
               className={inputClass}

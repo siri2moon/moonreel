@@ -1,6 +1,6 @@
 {
   "name": "moonreel-studio",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "AI video studio: niche-aware scripts, a recurring character and automatic rendering, powered by Meta Muse",
   "license": "MIT",
@@ -31,10 +31,12 @@
     "worker": "tsx --env-file=.env src/worker/index.ts",
     "db:push": "node --env-file=.env ./node_modules/drizzle-kit/bin.cjs push",
     "db:seed": "tsx --env-file=.env scripts/seed.ts",
+    "niches:export": "tsx --env-file=.env scripts/export-niches.ts",
     "typecheck": "tsc --noEmit",
     "worker:watch": "tsx watch --env-file=.env src/worker/index.ts"
   },
   "dependencies": {
+    "@resvg/resvg-js": "^2.6.2",
     "drizzle-orm": "0.45.4",
     "lucide-react": "^1.61.0",
     "next": "16.4.3",
@@ -42,6 +44,8 @@
     "pg-boss": "12.38.0",
     "react": "19.3.0",
     "react-dom": "19.3.0",
+    "satori": "^0.63.2",
+    "sharp": "^0.35.5",
     "zod": "4.6.7"
   },
   "devDependencies": {

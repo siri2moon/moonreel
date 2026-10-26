@@ -92,7 +92,25 @@ niches 1──* projects *──1 characters
                          │  + .srt captions (soft subtitles)
                          ▼
                    status = done → watch / download the MP4
+                         │
+                         ▼
+             job project-posts (singleton per project, also from "Rewrite captions")
+                         │  one chat turn (AI Gateway or Muse) → per-platform captions
+                         │  chapter times read from the .srt cue starts
+                         ▼
+                   projects.posts (jsonb), posts_status = ready
+                         │  first time only: projects.thumbnail spec (headline, photo prompt, fallback scene)
+                         ▼
+             job project-thumbnail (singleton per project, also from the thumbnail form)
+                         │  1. Background, only when missing: Muse image framed for the niche's template,
+                         │     or a scene keyframe (chosen, or fallback when Muse declines)
+                         │  2. Satori lays out the template overlay (fonts in assets/fonts),
+                         │     resvg rasterises it, sharp composites it over the background → JPEG
+                         ▼
+                   thumbnail.jpg, thumbnail_status = ready
 ```
+
+Thumbnail templates live in `src/lib/pipeline/thumbnail.ts` (rendering) and `src/components/thumbnail-preview.tsx` (the CSS mock-up in niche settings); keep the two in step. Headlines are broken into lines before rendering, from per-font glyph widths, so the layout does not depend on Satori's wrapping. The fonts (Anton, Oswald, Montserrat; SIL Open Font License, see `assets/fonts/OFL-*.txt`) cover Vietnamese. The worker reads them relative to its working directory, so start it from `moonreel-studio`, as `pnpm worker` does.
 
 ### Why generate a keyframe before the video?
 muse2api accepts **one reference image** per request. Feeding the character portrait straight into the video makes the first frame a static portrait. Generating a keyframe first (the character **inside the scene**, at the right aspect ratio) and using it as the video's first frame keeps the character consistent *and* the composition right.

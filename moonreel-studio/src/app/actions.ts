@@ -13,10 +13,13 @@ import { getActionDictionary } from "@/i18n/action";
 import { characters, niches, projects, scenes } from "@/db/schema";
 import {
   enqueueCharacterReference,
+  enqueuePosts,
   enqueueRender,
   enqueueScenes,
   enqueueScript,
+  enqueueThumbnail,
 } from "@/lib/queue";
+import { THUMBNAIL_STYLES } from "@/lib/thumbnail-styles";
 import { saveFile } from "@/lib/storage";
 
 // ---------------------------------------------------------------- niches
@@ -33,7 +36,7 @@ const nicheSchema = z.object({
   scriptInstructions: z.string().trim().min(1),
   tone: z.string().trim().default(""),
   visualStyle: z.string().trim().default(""),
-  sceneCount: z.coerce.number().int().min(1).max(20),
+  sceneCount: z.coerce.number().int().min(1).max(40),
   sceneSeconds: z.coerce.number().int().min(4).max(10),
   language: z.string().trim().min(1),
   defaultAspectRatio: z.enum(["9:16", "16:9"]).default("9:16"),
@@ -41,6 +44,18 @@ const nicheSchema = z.object({
     .union([z.uuid(), z.literal("")])
     .default("")
     .transform((v) => v || null),
+  narratorVoiceId: z
+    .string()
+    .trim()
+    .default("")
+    .transform((v) => v || null),
+  thumbnailStyle: z.enum(THUMBNAIL_STYLES).default("impact"),
+  thumbnailAccent: z
+    .string()
+    .trim()
+    .regex(/^#[0-9a-fA-F]{6}$/, "accent: a colour like #FFC23D")
+    .default("#FFC23D"),
+  thumbnailBrand: z.string().trim().max(32).default(""),
 });
 
 async function setActiveNiche(id: string) {
@@ -269,6 +284,56 @@ export async function editScene(
 export async function rerender(projectId: string) {
   await db.update(projects).set({ status: "rendering", error: null }).where(eq(projects.id, projectId));
   await enqueueRender(projectId);
+  revalidatePath(`/projects/${projectId}`);
+}
+
+/** Writes the platform captions again, e.g. when the first ones missed the mark. */
+export async function regeneratePosts(projectId: string) {
+  const rows = await db
+    .update(projects)
+    .set({ postsStatus: "writing", postsError: null })
+    .where(and(eq(projects.id, projectId), eq(projects.status, "done")))
+    .returning({ id: projects.id });
+  if (rows.length === 0) return;
+  await enqueuePosts(projectId);
+  revalidatePath(`/projects/${projectId}`);
+}
+
+const thumbnailInputSchema = z.object({
+  text: z.string().trim().min(1).max(80),
+  prompt: z.string().trim().min(1),
+  background: z.enum(["ai", "scene"]),
+  scene: z.coerce.number().int().min(1),
+});
+
+export type ThumbnailInput = z.infer<typeof thumbnailInputSchema>;
+
+/**
+ * Saves the thumbnail settings and redraws it. The background is only regenerated when it has
+ * to be (`newImage`, or a different background source, scene or prompt); a headline edit
+ * just re-lays the text.
+ */
+export async function updateThumbnail(projectId: string, input: ThumbnailInput, opts: { newImage: boolean }) {
+  const fields = thumbnailInputSchema.parse(input);
+  const project = await db.query.projects.findFirst({
+    where: eq(projects.id, projectId),
+    columns: { thumbnail: true },
+  });
+  if (!project?.thumbnail) return;
+  const old = project.thumbnail;
+  const sameBackground =
+    !opts.newImage &&
+    fields.background === old.background &&
+    (fields.background === "scene" ? fields.scene === old.scene : fields.prompt === old.prompt);
+  await db
+    .update(projects)
+    .set({
+      thumbnail: { ...old, ...fields, basePath: sameBackground ? old.basePath : null },
+      thumbnailStatus: "drawing",
+      thumbnailError: null,
+    })
+    .where(eq(projects.id, projectId));
+  await enqueueThumbnail(projectId);
   revalidatePath(`/projects/${projectId}`);
 }
 
