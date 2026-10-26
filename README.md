@@ -21,6 +21,8 @@ Meta's official developer API offers Muse chat and image models, but **no video 
 - **No extra API fees.** Generation uses your own muse.ai account's allowance.
 - **Not locked in.** Providers sit behind one `GenerationProvider` interface, ready for an official Muse video API, Kling or Seedance.
 
+Full write-up with a video walkthrough: [No Meta Muse Video API Yet? Generate Muse AI Videos with Open-Source MoonReel](https://siri2moon.com/posts/meta-muse-video-api-open-source-moonreel).
+
 ## Packages
 
 | Package | Description | Status |
