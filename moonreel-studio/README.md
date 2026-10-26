@@ -2,7 +2,7 @@
 
 # MoonReel Studio
 
-**Turn a topic into a finished short video with an AI script, a recurring character and one-click rendering.**
+**Turn a topic into a finished short video with an AI script, a recurring character and one-click rendering. An open-source way to generate Meta Muse videos while Muse has no public video API.**
 
 Vertical 9:16 for TikTok · Reels · Shorts, and 16:9 for YouTube. Powered by Meta Muse.
 

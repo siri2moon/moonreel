@@ -4,6 +4,22 @@
   "private": true,
   "description": "AI video studio: niche-aware scripts, a recurring character and automatic rendering, powered by Meta Muse",
   "license": "MIT",
+  "keywords": [
+    "meta-muse",
+    "muse-ai",
+    "muse-api",
+    "muse-video-api",
+    "ai-video-generator",
+    "text-to-video",
+    "image-to-video",
+    "short-video",
+    "tiktok",
+    "youtube-shorts",
+    "instagram-reels",
+    "faceless-video",
+    "nextjs",
+    "ffmpeg"
+  ],
   "engines": {
     "node": ">=20.9.0"
   },
