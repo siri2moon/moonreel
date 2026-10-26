@@ -1,10 +1,12 @@
 "use client";
 
 import {
+  BookOpen,
   Clapperboard,
   ImageIcon,
   Monitor,
   Palette,
+  Repeat,
   ScrollText,
   Smartphone,
   Sparkles,
@@ -12,7 +14,7 @@ import {
 } from "lucide-react";
 import { useState, useTransition, type ReactNode } from "react";
 import { deleteNiche, saveNiche } from "@/app/actions";
-import type { Niche } from "@/db/schema";
+import type { Niche, NicheFormat } from "@/db/schema";
 import { Button, Card, ErrorNote, Field, inputClass } from "@/components/ui";
 import { useI18n } from "@/i18n/client";
 import { ThumbnailPreview } from "@/components/thumbnail-preview";
@@ -54,6 +56,7 @@ export function NicheForm({ niche, characters }: { niche?: Niche; characters: Ch
   const { t } = useI18n();
   const f = t.nicheForm;
   const [icon, setIcon] = useState(niche?.icon ?? "✦");
+  const [format, setFormat] = useState<NicheFormat>(niche?.format ?? "story");
   const [thumbStyle, setThumbStyle] = useState<ThumbnailStyle>(
     (THUMBNAIL_STYLES as readonly string[]).includes(niche?.thumbnailStyle ?? "")
       ? (niche!.thumbnailStyle as ThumbnailStyle)
@@ -132,6 +135,49 @@ export function NicheForm({ niche, characters }: { niche?: Niche; characters: Ch
         title={f.script}
         description={f.scriptHint}
       >
+        <fieldset className="flex flex-col gap-2">
+          <legend className="mb-2 text-[13px] font-medium">{f.format}</legend>
+          <div className="grid grid-cols-2 gap-3">
+            {[
+              { value: "story" as const, Icon: BookOpen },
+              { value: "ambient" as const, Icon: Repeat },
+            ].map(({ value, Icon }) => (
+              <label
+                key={value}
+                className="flex cursor-pointer items-center gap-3 rounded-xl frost p-3.5 transition has-checked:shadow-[inset_0_0_0_1px_rgb(214_183_131/0.6),0_0_30px_-10px_rgb(214_183_131/0.6)] has-checked:bg-gold/[0.07]"
+              >
+                <input
+                  type="radio"
+                  name="format"
+                  value={value}
+                  checked={format === value}
+                  onChange={() => setFormat(value)}
+                  className="sr-only"
+                />
+                <Icon className="size-5 text-gold" />
+                <span>
+                  <span className="block text-sm font-medium">{f.formats[value].title}</span>
+                  <span className="block text-xs text-subtle">{f.formats[value].sub}</span>
+                </span>
+              </label>
+            ))}
+          </div>
+          <p className="text-xs leading-relaxed text-subtle">{f.formatHint}</p>
+          {format === "ambient" && (
+            <label className="mt-2 flex cursor-pointer items-start gap-3 rounded-xl frost p-3.5">
+              <input
+                type="checkbox"
+                name="fixedCamera"
+                defaultChecked={niche?.fixedCamera ?? false}
+                className="mt-0.5 size-4 accent-[#d6b783]"
+              />
+              <span>
+                <span className="block text-sm font-medium">{f.fixedCamera}</span>
+                <span className="block text-xs leading-relaxed text-subtle">{f.fixedCameraHint}</span>
+              </span>
+            </label>
+          )}
+        </fieldset>
         <Field label={f.instructions} hint={f.instructionsHint}>
           <textarea
             name="scriptInstructions"
@@ -150,7 +196,8 @@ export function NicheForm({ niche, characters }: { niche?: Niche; characters: Ch
             <input name="language" required defaultValue={niche?.language ?? "Vietnamese"} className={inputClass} />
           </Field>
         </div>
-        <Field label={f.narratorVoice} hint={f.narratorVoiceHint}>
+        {/* Ambient videos play the uploaded soundtrack; there is nothing to narrate. */}
+        <Field label={f.narratorVoice} hint={f.narratorVoiceHint} className={format === "ambient" ? "hidden!" : ""}>
           <input
             name="narratorVoiceId"
             defaultValue={niche?.narratorVoiceId ?? ""}

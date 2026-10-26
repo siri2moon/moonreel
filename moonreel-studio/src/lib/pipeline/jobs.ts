@@ -1,4 +1,4 @@
-import { asc, eq, sql } from "drizzle-orm";
+import { and, asc, eq, sql } from "drizzle-orm";
 import { db } from "@/db";
 import {
   characters,
@@ -12,10 +12,11 @@ import { getProvider } from "@/lib/providers";
 import { gatewayChat, gatewayConfigured } from "@/lib/providers/gateway";
 import { MuseRefusedError } from "@/lib/providers/muse2api";
 import { REFUSED_PREFIX } from "@/lib/scene-errors";
-import { enqueuePosts, enqueueRender, enqueueThumbnail } from "@/lib/queue";
+import { enqueuePosts, enqueueRender, enqueueScenes, enqueueThumbnail } from "@/lib/queue";
 import { readFileByKey, resolveKey, saveFile, toDataUrl } from "@/lib/storage";
 import type { z } from "zod";
 import {
+  buildAmbientScriptPrompt,
   buildCharacterReferencePrompt,
   buildKeyframePrompt,
   buildOutlinePrompt,
@@ -35,7 +36,7 @@ import {
   scriptSchema,
   type Script,
 } from "./prompts";
-import { renderFinal } from "./render";
+import { cameraStillness, mediaDuration, renderFinal, renderLoop } from "./render";
 import { composeThumbnail, THUMBNAIL_STYLES, type ThumbnailStyle } from "./thumbnail";
 import { synthesizeNarration } from "./voiceover";
 
@@ -60,6 +61,14 @@ async function withRetry<T>(label: string, fn: () => Promise<T>, attempts = 2): 
 async function characterRef(character: Character | null) {
   if (character?.referenceStatus !== "ready" || !character.referenceImagePath) return undefined;
   return toDataUrl(character.referenceImagePath);
+}
+
+/**
+ * Muse takes one reference image. A photo of the place, when the project has one, wins over
+ * the character sheet; the character is then described in words only.
+ */
+async function imageReference(project: { referenceImagePath: string | null }, character: Character | null) {
+  return project.referenceImagePath ? toDataUrl(project.referenceImagePath) : characterRef(character);
 }
 
 /**
@@ -95,6 +104,10 @@ const SCENES_SHAPE = '{"scenes": [{"narration": string, "visualPrompt": string, 
 const OUTLINE_SHAPE = '{"title": string, "beats": [string]}';
 
 async function writeScript(input: Parameters<typeof buildScriptPrompt>[0]): Promise<Script> {
+  // Ambient shots are short notes, so even a long shot list fits one reply.
+  if (input.niche.format === "ambient") {
+    return chatJson("script", buildAmbientScriptPrompt(input), scriptSchema, SCRIPT_SHAPE);
+  }
   // Gateway models answer long scripts in one turn; Muse needs them in parts (see SCRIPT_PART_SCENES).
   if (gatewayConfigured() || input.niche.sceneCount <= SCRIPT_PART_SCENES) {
     return chatJson("script", buildScriptPrompt(input), scriptSchema, SCRIPT_SHAPE);
@@ -136,6 +149,7 @@ export async function generateScript(projectId: string) {
       character: project.character,
       topic: project.topic,
       aspectRatio: project.aspectRatio,
+      placeReference: !!project.referenceImagePath,
     });
 
     await db.transaction(async (tx) => {
@@ -186,6 +200,28 @@ export async function generateCharacterReference(characterId: string) {
   }
 }
 
+// Ambient clips must hold a still camera. Below this first-to-later-frame SSIM the camera moved
+// (still shots measure 0.84–0.9, zooms and pans 0.35–0.47), and the clip is made again.
+const STILL_CAMERA_MIN_SSIM = 0.65;
+const STILL_CAMERA_ATTEMPTS = 3;
+
+// How long a fixed-camera shot waits before checking again for scene 1's keyframe.
+const SHARED_KEYFRAME_WAIT_S = 30;
+
+/**
+ * Fixed-camera ambient niches draw one keyframe, in scene 1, and every other shot starts from
+ * it. Returns that keyframe, or "wait" while scene 1 is still drawing it.
+ */
+async function sharedKeyframe(projectId: string): Promise<string | "wait"> {
+  const first = await db.query.scenes.findFirst({
+    where: and(eq(scenes.projectId, projectId), eq(scenes.index, 0)),
+    columns: { keyframePath: true, status: true },
+  });
+  if (first?.keyframePath) return first.keyframePath;
+  if (!first || first.status === "failed") throw new Error("Scene 1 has no image yet: retry scene 1 first");
+  return "wait";
+}
+
 export async function produceScene(sceneId: string) {
   const scene = await db.query.scenes.findFirst({
     where: eq(scenes.id, sceneId),
@@ -201,12 +237,21 @@ export async function produceScene(sceneId: string) {
 
   try {
     let keyframePath = scene.keyframePath;
+    if (!keyframePath && niche.format === "ambient" && niche.fixedCamera && scene.index > 0) {
+      const shared = await sharedKeyframe(project.id);
+      if (shared === "wait") {
+        await enqueueScenes([sceneId], { startAfterSeconds: SHARED_KEYFRAME_WAIT_S });
+        return;
+      }
+      keyframePath = shared;
+      await db.update(scenes).set({ keyframePath }).where(eq(scenes.id, sceneId));
+    }
     if (!keyframePath) {
       await db.update(scenes).set({ status: "keyframe", error: null }).where(eq(scenes.id, sceneId));
-      const reference = await characterRef(character);
+      const reference = await imageReference(project, character);
       const image = await withRetry("keyframe", () =>
         provider.generateImage({
-          prompt: buildKeyframePrompt({ scene, niche, character }),
+          prompt: buildKeyframePrompt({ scene, niche, character, placeReference: !!project.referenceImagePath }),
           aspectRatio: project.aspectRatio,
           referenceImage: reference,
         }),
@@ -217,15 +262,33 @@ export async function produceScene(sceneId: string) {
 
     await db.update(scenes).set({ status: "video", error: null }).where(eq(scenes.id, sceneId));
     const firstFrame = await toDataUrl(keyframePath);
-    const video = await withRetry("video", () =>
-      provider.generateVideo({
-        prompt: buildVideoPrompt({ scene, niche, character }),
-        aspectRatio: project.aspectRatio,
-        durationSeconds: niche.sceneSeconds,
-        firstFrame,
-      }),
-    );
-    const clipPath = await saveFile(`${prefix}${video.ext}`, video.data);
+    const makeClip = async () => {
+      const video = await withRetry("video", () =>
+        provider.generateVideo({
+          prompt: buildVideoPrompt({ scene, niche, character }),
+          aspectRatio: project.aspectRatio,
+          durationSeconds: niche.sceneSeconds,
+          firstFrame,
+        }),
+      );
+      return saveFile(`${prefix}${video.ext}`, video.data);
+    };
+    let clipPath = await makeClip();
+    if (niche.format === "ambient") {
+      // Sequential on purpose: each attempt is a new Muse clip, made only if the last one moved.
+      // These are Muse calls and ffmpeg runs, not DB queries.
+      for (let attempt = 1; ; attempt++) {
+        const stillness = await cameraStillness(resolveKey(clipPath));
+        if (stillness >= STILL_CAMERA_MIN_SSIM) break;
+        if (attempt >= STILL_CAMERA_ATTEMPTS) {
+          throw new Error(
+            `The camera moved in all ${attempt} clips Muse made (stillness ${stillness.toFixed(2)}, need ${STILL_CAMERA_MIN_SSIM}). Redo the clip, or make the scene calmer.`,
+          );
+        }
+        console.warn(`[scene ${scene.index + 1}] camera moved (stillness ${stillness.toFixed(2)}), making the clip again`);
+        clipPath = await makeClip();
+      }
+    }
     await db
       .update(scenes)
       .set({ clipPath, status: "done", error: null })
@@ -269,21 +332,32 @@ export async function renderProject(projectId: string) {
 
   try {
     const finalKey = `projects/${projectId}/final.mp4`;
-    const srtKey = `projects/${projectId}/captions.srt`;
-    const voiceId = project.niche.narratorVoiceId;
-    const voices = voiceId
-      ? await synthesizeNarration(voiceId, project.scenes.map((s) => s.narration))
-      : [];
-    await renderFinal({
-      clips: project.scenes.map((s, i) => ({
-        file: resolveKey(s.clipPath!),
-        narration: s.narration,
-        voice: voices[i],
-      })),
-      aspectRatio: project.aspectRatio,
-      outFile: resolveKey(finalKey),
-      srtFile: resolveKey(srtKey),
-    });
+    let srtKey: string | null = null;
+    if (project.niche.format === "ambient") {
+      if (!project.audioPath) throw new Error("No soundtrack uploaded");
+      await renderLoop({
+        clips: project.scenes.map((s) => resolveKey(s.clipPath!)),
+        audio: resolveKey(project.audioPath),
+        aspectRatio: project.aspectRatio,
+        outFile: resolveKey(finalKey),
+      });
+    } else {
+      srtKey = `projects/${projectId}/captions.srt`;
+      const voiceId = project.niche.narratorVoiceId;
+      const voices = voiceId
+        ? await synthesizeNarration(voiceId, project.scenes.map((s) => s.narration))
+        : [];
+      await renderFinal({
+        clips: project.scenes.map((s, i) => ({
+          file: resolveKey(s.clipPath!),
+          narration: s.narration,
+          voice: voices[i],
+        })),
+        aspectRatio: project.aspectRatio,
+        outFile: resolveKey(finalKey),
+        srtFile: resolveKey(srtKey),
+      });
+    }
     await db
       .update(projects)
       .set({
@@ -377,11 +451,12 @@ export async function generatePosts(projectId: string) {
     .where(eq(projects.id, projectId));
 
   try {
-    const { starts, total } = await sceneTimes(
-      project.captionsPath,
-      project.scenes.length,
-      project.niche.sceneSeconds,
-    );
+    const ambient = project.niche.format === "ambient";
+    // An ambient video runs as long as its soundtrack and has no per-scene timeline.
+    const { starts, total } =
+      ambient && project.finalVideoPath
+        ? { starts: [], total: await mediaDuration(resolveKey(project.finalVideoPath)) }
+        : await sceneTimes(project.captionsPath, project.scenes.length, project.niche.sceneSeconds);
     const reply = await chatJson(
       "posts",
       buildPostsPrompt({
@@ -405,7 +480,8 @@ export async function generatePosts(projectId: string) {
         title: reply.youtube.title.trim(),
         description: reply.youtube.description.trim(),
         tags: toTags(reply.youtube.tags),
-        chapters: project.aspectRatio === "16:9" ? toChapters(reply.youtube.chapters, starts, total) : [],
+        chapters:
+          project.aspectRatio === "16:9" && !ambient ? toChapters(reply.youtube.chapters, starts, total) : [],
       },
       tiktok: { caption: reply.tiktok.caption.trim() },
       instagram: { caption: reply.instagram.caption.trim() },
@@ -473,7 +549,7 @@ export async function generateThumbnail(projectId: string) {
         spec.basePath = keyframeOf(spec.scene) ?? null;
       } else {
         try {
-          const reference = await characterRef(character);
+          const reference = await imageReference(project, character);
           const image = await withRetry("thumbnail", () =>
             getProvider().generateImage({
               prompt: buildThumbnailPrompt({
@@ -481,6 +557,7 @@ export async function generateThumbnail(projectId: string) {
                 character,
                 prompt: spec.prompt,
                 aspectRatio: project.aspectRatio,
+                placeReference: !!project.referenceImagePath,
               }),
               aspectRatio: project.aspectRatio,
               referenceImage: reference,

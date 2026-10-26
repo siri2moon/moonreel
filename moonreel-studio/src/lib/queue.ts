@@ -81,12 +81,13 @@ export async function enqueueCharacterReference(characterId: string) {
 }
 
 /** Enqueues all scenes in one insert instead of one round trip per scene. */
-export async function enqueueScenes(sceneIds: string[]) {
+export async function enqueueScenes(sceneIds: string[], opts: { startAfterSeconds?: number } = {}) {
   if (sceneIds.length === 0) return;
   const boss = await getBoss();
+  const startAfter = opts.startAfterSeconds ? new Date(Date.now() + opts.startAfterSeconds * 1000) : undefined;
   await boss.insert(
     QUEUES.sceneProduce,
-    sceneIds.map((sceneId) => ({ data: { sceneId } satisfies SceneProduceJob })),
+    sceneIds.map((sceneId) => ({ data: { sceneId } satisfies SceneProduceJob, startAfter })),
   );
 }
 

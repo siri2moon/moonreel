@@ -112,6 +112,30 @@ const en = {
     productionTime: (range: string) => `~${range} min`,
     length: "Final length",
     submit: "Write the script with Muse",
+    ambient: {
+      description: "Describe the place and upload the soundtrack. Muse films a few calm shots of it, and they loop seamlessly until the audio ends.",
+      stepPlace: "The place",
+      placePlaceholder: "e.g. a small corner café on a rainy Hanoi street at night, warm lamps inside, scooters and umbrellas passing outside",
+      placeHint: "Time of day, weather and what moves (passers-by, leaves, rain, steam) shape every shot.",
+      stepSoundtrack: "Soundtrack",
+      choose: "Choose an audio file",
+      replace: "Replace",
+      formats: "MP3, M4A, AAC, WAV, OGG or FLAC, up to 1 GB",
+      uploading: (percent: number) => `Uploading… ${percent}%`,
+      notUploaded: "Upload the soundtrack first",
+      shots: (n: number) => `Filming ${n} looping shots`,
+      lengthValue: "Soundtrack length",
+      submit: "Plan the shots with Muse",
+    },
+    reference: {
+      step: "Reference photo (optional)",
+      hint: "A photo of a similar place (a room with a rain-streaked window, a café corner…). Muse copies its layout, materials and light when drawing, which words alone rarely get right.",
+      choose: "Add a photo",
+      replace: "Replace photo",
+      remove: "Remove photo",
+      uploading: "Uploading…",
+      alt: "Reference photo of the place",
+    },
   },
   project: {
     topic: "Topic:",
@@ -121,6 +145,9 @@ const en = {
     steps: { script: "Script", review: "Review", produce: "Production", render: "Render", done: "Done" },
     writingTitle: "Muse is writing the script…",
     writingBody: "Usually takes 1–3 minutes. The page updates by itself when it's done.",
+    renderingTitle: "Putting the video together…",
+    renderingBody: "Joining the clips, voice-over and subtitles. Usually a minute or two; the page updates by itself.",
+    renderingBodyLoop: "Looping the shots to the length of the soundtrack. Usually under a minute; the page updates by itself.",
     script: "Script",
     scriptSummary: (scenes: number, seconds: number) => ` · ${scenes} scenes · ~${seconds}s`,
     regenerate: "Rewrite",
@@ -162,6 +189,19 @@ const en = {
     refusedBody:
       "Usually a content filter. Tone down fear, danger or someone watching the character, then retry. If the first frame is a tense close-up, redraw the image too.",
     refusedReply: "Muse's reply",
+    ambient: {
+      shotNote: "Shot note (not spoken)",
+      reference: "Reference photo",
+      referenceHint: "Used for images drawn from now on. To apply it to a finished shot, redraw it with \"With image\".",
+      scriptSummary: (shots: number, length: string | null) =>
+        ` · ${shots} shots, looped to the end of the audio${length ? ` · video length ${length}` : ""}`,
+      soundtrack: "Soundtrack",
+      replace: "Replace soundtrack",
+      replaceHint: "A finished video is rendered again with the new track.",
+      uploading: (percent: number) => `Uploading… ${percent}%`,
+      editHint: "Changes apply to this shot only.",
+      finalBody: (shots: number, ratio: string) => `${shots} shots looping seamlessly under your soundtrack · ${ratio}`,
+    },
     thumbnail: {
       eyebrow: "Thumbnail",
       heading: "Thumbnail in the niche's style",
@@ -261,6 +301,15 @@ const en = {
     tone: "Tone of voice",
     tonePlaceholder: "Funny, lightly sarcastic",
     language: "Narration language",
+    format: "Video type",
+    formatHint: "Story videos are narrated scene by scene. Ambient loops film a few calm shots of one place and repeat them under a soundtrack you upload.",
+    fixedCamera: "One fixed camera",
+    fixedCameraHint:
+      "Muse draws a single frame and every shot starts from it, so the angle never changes and only the motion differs. Otherwise each shot is a different view of the place.",
+    formats: {
+      story: { title: "Story", sub: "Script, narration, subtitles" },
+      ambient: { title: "Ambient loop", sub: "Your audio, looping calm footage" },
+    },
     narratorVoice: "Narrator voice (ElevenLabs voice ID)",
     narratorVoiceHint:
       "Optional. Reads the whole video in this one voice and keeps only ambient sound from the clips. Needs ELEVENLABS_API_KEY in .env.",
@@ -302,6 +351,7 @@ const en = {
     backHome: "Back to overview",
     nicheHasVideos: (n: number) => `This niche still has ${n} video${n === 1 ? "" : "s"}. Delete them before deleting the niche.`,
     noReferenceImage: "No reference image selected",
+    noSoundtrack: "Upload a soundtrack for this ambient video",
   },
 };
 

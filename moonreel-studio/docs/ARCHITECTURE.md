@@ -112,6 +112,10 @@ niches 1──* projects *──1 characters
 
 Thumbnail templates live in `src/lib/pipeline/thumbnail.ts` (rendering) and `src/components/thumbnail-preview.tsx` (the CSS mock-up in niche settings); keep the two in step. Headlines are broken into lines before rendering, from per-font glyph widths, so the layout does not depend on Satori's wrapping. The fonts (Anton, Oswald, Montserrat; SIL Open Font License, see `assets/fonts/OFL-*.txt`) cover Vietnamese. The worker reads them relative to its working directory, so start it from `moonreel-studio`, as `pnpm worker` does.
 
+### Ambient loops
+
+Niches with `format = "ambient"` skip narration: `buildAmbientScriptPrompt` asks for loopable shots of one place, and `projects.audio_path` holds a soundtrack uploaded through `POST /api/uploads/audio` (a route handler outside the proxy, streamed to disk, so large files never pass through a server action). `renderLoop` in `pipeline/render.ts` chains the clips with `xfade`, appends clip 1 again and cuts the result where that copy reaches the first frame, which gives a loop with no seam. A second FFmpeg pass repeats it with `-stream_loop` and `-c:v copy` up to the soundtrack's length, so only the audio is encoded.
+
 ### Why generate a keyframe before the video?
 muse2api accepts **one reference image** per request. Feeding the character portrait straight into the video makes the first frame a static portrait. Generating a keyframe first (the character **inside the scene**, at the right aspect ratio) and using it as the video's first frame keeps the character consistent *and* the composition right.
 

@@ -42,6 +42,11 @@ const MIME: Record<string, string> = {
   ".webp": "image/webp",
   ".mp4": "video/mp4",
   ".mp3": "audio/mpeg",
+  ".m4a": "audio/mp4",
+  ".aac": "audio/aac",
+  ".wav": "audio/wav",
+  ".ogg": "audio/ogg",
+  ".flac": "audio/flac",
   ".srt": "application/x-subrip",
 };
 

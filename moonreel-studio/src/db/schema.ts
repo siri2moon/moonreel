@@ -1,10 +1,12 @@
 import { relations } from "drizzle-orm";
 import {
   type AnyPgColumn,
+  boolean,
   integer,
   jsonb,
   pgEnum,
   pgTable,
+  real,
   text,
   timestamp,
   uniqueIndex,
@@ -12,6 +14,12 @@ import {
 } from "drizzle-orm/pg-core";
 
 export const aspectRatioEnum = pgEnum("aspect_ratio", ["9:16", "16:9"]);
+
+/**
+ * "story": a narrated script, one clip per line. "ambient": a looping background for a
+ * soundtrack the user uploads; scenes carry only a short shot note, nothing is spoken.
+ */
+export const nicheFormatEnum = pgEnum("niche_format", ["story", "ambient"]);
 
 export const referenceStatusEnum = pgEnum("reference_status", [
   "none",
@@ -91,6 +99,9 @@ export const niches = pgTable("niches", {
   sceneSeconds: integer("scene_seconds").notNull().default(10),
   language: text("language").notNull().default("Vietnamese"),
   icon: text("icon").notNull().default("✦"),
+  format: nicheFormatEnum("format").notNull().default("story"),
+  /** Ambient only: every shot reuses scene 1's keyframe, so the camera never changes angle. */
+  fixedCamera: boolean("fixed_camera").notNull().default(false),
   defaultAspectRatio: aspectRatioEnum("default_aspect_ratio").notNull().default("9:16"),
   // ElevenLabs voice for an off-screen narrator. When set, clips keep only ambient sound
   // and the whole narration is read in this one voice at render time.
@@ -131,6 +142,12 @@ export const projects = pgTable("projects", {
   error: text("error"),
   finalVideoPath: text("final_video_path"),
   captionsPath: text("captions_path"),
+  /** Uploaded soundtrack of an ambient video; the clips loop until it ends. */
+  audioPath: text("audio_path"),
+  /** Length of the soundtrack, which is also the length of the final ambient video. */
+  audioSeconds: real("audio_seconds"),
+  /** Optional photo of the place; Muse copies it when drawing keyframes and the thumbnail. */
+  referenceImagePath: text("reference_image_path"),
   posts: jsonb("posts").$type<SocialPosts>(),
   postsStatus: postsStatusEnum("posts_status").notNull().default("none"),
   postsError: text("posts_error"),
@@ -189,4 +206,5 @@ export type Niche = typeof niches.$inferSelect;
 export type Character = typeof characters.$inferSelect;
 export type Project = typeof projects.$inferSelect;
 export type Scene = typeof scenes.$inferSelect;
+export type NicheFormat = (typeof nicheFormatEnum.enumValues)[number];
 export type AspectRatio = (typeof aspectRatioEnum.enumValues)[number];

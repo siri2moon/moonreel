@@ -2,6 +2,7 @@ import { createReadStream } from "node:fs";
 import { stat } from "node:fs/promises";
 import { Readable } from "node:stream";
 import type { NextRequest } from "next/server";
+import path from "node:path";
 import { mimeOf, resolveKey } from "@/lib/storage";
 
 // Serves generated media from local storage, with Range support so videos can seek.
@@ -25,8 +26,12 @@ export async function GET(req: NextRequest, ctx: RouteContext<"/api/files/[...pa
     "Accept-Ranges": "bytes",
     "Cache-Control": "private, max-age=3600",
   });
-  if (req.nextUrl.searchParams.has("download")) {
-    headers.set("Content-Disposition", `attachment; filename="${parts.at(-1)}"`);
+  // ?download saves under the stored name; ?download=<slug> under that slug plus the file's extension.
+  const download = req.nextUrl.searchParams.get("download");
+  if (download !== null) {
+    const base = download.replace(/[^a-z0-9-]+/gi, "-").replace(/^-+|-+$/g, "").slice(0, 100);
+    const name = base ? `${base}${path.extname(key)}` : parts.at(-1)!;
+    headers.set("Content-Disposition", `attachment; filename="${name}"`);
   }
 
   const range = req.headers.get("range")?.match(/^bytes=(\d*)-(\d*)$/);

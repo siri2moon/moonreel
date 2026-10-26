@@ -19,8 +19,11 @@ import {
   enqueueScript,
   enqueueThumbnail,
 } from "@/lib/queue";
+import { mediaDuration } from "@/lib/pipeline/render";
+import { REFERENCE_KEY } from "@/lib/reference-image";
+import { SOUNDTRACK_KEY } from "@/lib/soundtrack";
 import { THUMBNAIL_STYLES } from "@/lib/thumbnail-styles";
-import { saveFile } from "@/lib/storage";
+import { resolveKey, saveFile } from "@/lib/storage";
 
 // ---------------------------------------------------------------- niches
 
@@ -32,6 +35,12 @@ const nicheSchema = z.object({
     .min(1)
     .regex(/^[a-z0-9-]+$/, "slug: lowercase letters, numbers and hyphens only"),
   icon: z.string().trim().min(1).max(8).default("✦"),
+  format: z.enum(["story", "ambient"]).default("story"),
+  // An unchecked checkbox is simply missing from the form data.
+  fixedCamera: z
+    .string()
+    .optional()
+    .transform((v) => v === "on"),
   description: z.string().trim().default(""),
   scriptInstructions: z.string().trim().min(1),
   tone: z.string().trim().default(""),
@@ -166,13 +175,29 @@ const projectSchema = z.object({
   nicheId: z.uuid(),
   characterId: z.union([z.uuid(), z.literal("")]).transform((v) => v || null),
   aspectRatio: z.enum(["9:16", "16:9"]),
+  audioPath: z
+    .union([z.string().regex(SOUNDTRACK_KEY), z.literal("")])
+    .default("")
+    .transform((v) => v || null),
+  referenceImagePath: z
+    .union([z.string().regex(REFERENCE_KEY), z.literal("")])
+    .default("")
+    .transform((v) => v || null),
 });
 
 export async function createProject(formData: FormData) {
   const data = projectSchema.parse(Object.fromEntries(formData));
+  const niche = await db.query.niches.findFirst({
+    where: eq(niches.id, data.nicheId),
+    columns: { format: true },
+  });
+  if (niche?.format === "ambient" && !data.audioPath) {
+    throw new Error((await getActionDictionary()).errors.noSoundtrack);
+  }
+  const audioSeconds = data.audioPath ? await mediaDuration(resolveKey(data.audioPath)) : null;
   const [row] = await db
     .insert(projects)
-    .values({ ...data, title: data.topic.slice(0, 80), status: "scripting" })
+    .values({ ...data, audioSeconds, title: data.topic.slice(0, 80), status: "scripting" })
     .returning({ id: projects.id });
   await enqueueScript(row.id);
   redirect(`/projects/${row.id}`);
@@ -284,6 +309,32 @@ export async function editScene(
 export async function rerender(projectId: string) {
   await db.update(projects).set({ status: "rendering", error: null }).where(eq(projects.id, projectId));
   await enqueueRender(projectId);
+  revalidatePath(`/projects/${projectId}`);
+}
+
+/** Swaps the soundtrack of an ambient video; a finished video is rendered again with it. */
+export async function replaceSoundtrack(projectId: string, audioPath: string) {
+  const key = z.string().regex(SOUNDTRACK_KEY).parse(audioPath);
+  const audioSeconds = await mediaDuration(resolveKey(key));
+  const [row] = await db
+    .update(projects)
+    .set({ audioPath: key, audioSeconds })
+    .where(eq(projects.id, projectId))
+    .returning({ status: projects.status });
+  if (row?.status === "done") {
+    await db.update(projects).set({ status: "rendering", error: null }).where(eq(projects.id, projectId));
+    await enqueueRender(projectId);
+  }
+  revalidatePath(`/projects/${projectId}`);
+}
+
+/**
+ * Sets or clears the place reference photo. Only images drawn from now on use it; redraw a
+ * scene's image to apply it there.
+ */
+export async function setReferenceImage(projectId: string, key: string | null) {
+  const referenceImagePath = key === null ? null : z.string().regex(REFERENCE_KEY).parse(key);
+  await db.update(projects).set({ referenceImagePath }).where(eq(projects.id, projectId));
   revalidatePath(`/projects/${projectId}`);
 }
 

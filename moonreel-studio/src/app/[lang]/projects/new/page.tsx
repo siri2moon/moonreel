@@ -6,6 +6,8 @@ import { Suspense, type ReactNode } from "react";
 import { createProject } from "@/app/actions";
 import { db } from "@/db";
 import { characters } from "@/db/schema";
+import { ReferenceImageUpload } from "@/components/reference-image-upload";
+import { SoundtrackUpload } from "@/components/soundtrack-upload";
 import { Button, Card, Chip, Empty, Eyebrow, inputClass, LinkButton, Loading, PageHeader } from "@/components/ui";
 import type { Dictionary } from "@/i18n/dictionaries";
 import { getDictionary } from "@/i18n/server";
@@ -63,6 +65,7 @@ async function NewProject() {
     ? niche.defaultCharacterId
     : "";
   const sceneMinutes = `${niche.sceneCount * 2}–${niche.sceneCount * 4}`;
+  const ambient = niche.format === "ambient" ? p.ambient : null;
 
   return (
     <>
@@ -75,14 +78,14 @@ async function NewProject() {
             {p.title.post}
           </>
         }
-        description={p.description}
+        description={ambient?.description ?? p.description}
       />
 
       <form action={createProject} className="grid gap-6 lg:grid-cols-[1fr_320px]">
         <input type="hidden" name="nicheId" value={niche.id} />
 
         <Card className="flex flex-col gap-10 p-6 md:p-8">
-          <Step n={1} title={p.stepTopic}>
+          <Step n={1} title={ambient?.stepPlace ?? p.stepTopic}>
             <textarea
               name="topic"
               required
@@ -90,12 +93,25 @@ async function NewProject() {
               rows={4}
               autoFocus
               className={`${inputClass} text-base leading-relaxed`}
-              placeholder={p.topicPlaceholder}
+              placeholder={ambient?.placePlaceholder ?? p.topicPlaceholder}
             />
-            <p className="text-xs text-subtle">{p.topicHint}</p>
+            <p className="text-xs text-subtle">{ambient?.placeHint ?? p.topicHint}</p>
           </Step>
 
-          <Step n={2} title={p.stepFormat}>
+          {ambient && (
+            <Step n={2} title={ambient.stepSoundtrack}>
+              <SoundtrackUpload name="audioPath" />
+            </Step>
+          )}
+
+          {ambient && (
+            <Step n={3} title={p.reference.step}>
+              <p className="-mt-1 text-xs leading-relaxed text-subtle">{p.reference.hint}</p>
+              <ReferenceImageUpload name="referenceImagePath" />
+            </Step>
+          )}
+
+          <Step n={ambient ? 4 : 2} title={p.stepFormat}>
             <div className="grid grid-cols-2 gap-3">
               {formats(t).map(({ value, title, sub, frame }) => (
                 <label
@@ -123,38 +139,43 @@ async function NewProject() {
             </div>
           </Step>
 
-          <Step n={3} title={p.stepCharacter}>
-            <div className="grid grid-cols-3 gap-3 sm:grid-cols-4 md:grid-cols-5">
-              <CharacterOption value="" checked={defaultCharacter === ""} name={p.noCharacter}>
-                <UserRoundX className="size-7 text-subtle" />
-              </CharacterOption>
-              {characterRows.map((c) => {
-                const img = fileUrl(c.referenceImagePath, c.updatedAt);
-                return (
-                  <CharacterOption
-                    key={c.id}
-                    value={c.id}
-                    checked={defaultCharacter === c.id}
-                    name={c.name}
-                    warn={c.referenceStatus !== "ready" ? { title: p.noReference, short: p.noReferenceShort } : undefined}
-                  >
-                    {img ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={img} alt={c.name} className="size-full object-cover" />
-                    ) : (
-                      <span className="text-gold text-2xl font-bold">{c.name.slice(0, 1)}</span>
-                    )}
-                  </CharacterOption>
-                );
-              })}
-            </div>
-            <p className="text-xs text-subtle">
-              {p.characterHint}{" "}
-              <Link href="/characters/new" className="text-gold-light hover:underline">
-                {p.newCharacter}
-              </Link>
-            </p>
-          </Step>
+          {/* Ambient shots are about the place; a character can still be set as the niche default. */}
+          {ambient ? (
+            <input type="hidden" name="characterId" value={defaultCharacter ?? ""} />
+          ) : (
+            <Step n={3} title={p.stepCharacter}>
+              <div className="grid grid-cols-3 gap-3 sm:grid-cols-4 md:grid-cols-5">
+                <CharacterOption value="" checked={defaultCharacter === ""} name={p.noCharacter}>
+                  <UserRoundX className="size-7 text-subtle" />
+                </CharacterOption>
+                {characterRows.map((c) => {
+                  const img = fileUrl(c.referenceImagePath, c.updatedAt);
+                  return (
+                    <CharacterOption
+                      key={c.id}
+                      value={c.id}
+                      checked={defaultCharacter === c.id}
+                      name={c.name}
+                      warn={c.referenceStatus !== "ready" ? { title: p.noReference, short: p.noReferenceShort } : undefined}
+                    >
+                      {img ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={img} alt={c.name} className="size-full object-cover" />
+                      ) : (
+                        <span className="text-gold text-2xl font-bold">{c.name.slice(0, 1)}</span>
+                      )}
+                    </CharacterOption>
+                  );
+                })}
+              </div>
+              <p className="text-xs text-subtle">
+                {p.characterHint}{" "}
+                <Link href="/characters/new" className="text-gold-light hover:underline">
+                  {p.newCharacter}
+                </Link>
+              </p>
+            </Step>
+          )}
         </Card>
 
         <aside className="flex flex-col gap-4 lg:sticky lg:top-8 lg:self-start">
@@ -195,17 +216,19 @@ async function NewProject() {
               <span className="text-foreground">{p.scriptingTime}</span>
             </div>
             <div className="flex justify-between">
-              <span>{p.production(niche.sceneCount)}</span>
+              <span>{ambient ? ambient.shots(niche.sceneCount) : p.production(niche.sceneCount)}</span>
               <span className="text-foreground">{p.productionTime(sceneMinutes)}</span>
             </div>
             <div className="flex justify-between">
               <span>{p.length}</span>
-              <span className="text-foreground">~{niche.sceneCount * niche.sceneSeconds}s</span>
+              <span className="text-foreground">
+                {ambient ? ambient.lengthValue : `~${niche.sceneCount * niche.sceneSeconds}s`}
+              </span>
             </div>
           </Card>
 
           <Button type="submit" size="lg" className="w-full">
-            <WandSparkles /> {p.submit}
+            <WandSparkles /> {ambient?.submit ?? p.submit}
           </Button>
         </aside>
       </form>

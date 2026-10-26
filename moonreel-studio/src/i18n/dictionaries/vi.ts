@@ -111,6 +111,30 @@ const vi: Dictionary = {
     productionTime: (range) => `~${range} phút`,
     length: "Độ dài thành phẩm",
     submit: "Viết kịch bản với Muse",
+    ambient: {
+      description: "Mô tả khung cảnh và tải lên file âm thanh. Muse quay vài cảnh tĩnh nhẹ nhàng, rồi lặp liền mạch đến hết audio.",
+      stepPlace: "Khung cảnh",
+      placePlaceholder: "VD: quán cà phê góc phố Hà Nội đêm mưa, đèn vàng ấm bên trong, xe máy và ô dù qua lại bên ngoài",
+      placeHint: "Thời điểm trong ngày, thời tiết và những gì chuyển động (người qua lại, lá cây, mưa, hơi nước) quyết định mọi cảnh.",
+      stepSoundtrack: "Âm thanh",
+      choose: "Chọn file audio",
+      replace: "Đổi file",
+      formats: "MP3, M4A, AAC, WAV, OGG hoặc FLAC, tối đa 1 GB",
+      uploading: (percent) => `Đang tải lên… ${percent}%`,
+      notUploaded: "Hãy tải file âm thanh lên trước",
+      shots: (n) => `Quay ${n} cảnh lặp`,
+      lengthValue: "Bằng độ dài audio",
+      submit: "Lên cảnh quay với Muse",
+    },
+    reference: {
+      step: "Ảnh tham chiếu (không bắt buộc)",
+      hint: "Ảnh chụp một nơi tương tự (căn phòng có cửa kính nhìn ra mưa, góc quán cafe…). Muse sẽ bám theo bố cục, chất liệu và ánh sáng của ảnh khi vẽ, chính xác hơn chỉ mô tả bằng lời.",
+      choose: "Thêm ảnh",
+      replace: "Đổi ảnh",
+      remove: "Bỏ ảnh",
+      uploading: "Đang tải lên…",
+      alt: "Ảnh tham chiếu khung cảnh",
+    },
   },
   project: {
     topic: "Chủ đề:",
@@ -120,6 +144,9 @@ const vi: Dictionary = {
     steps: { script: "Kịch bản", review: "Duyệt", produce: "Sản xuất", render: "Ghép video", done: "Hoàn thành" },
     writingTitle: "Muse đang viết kịch bản…",
     writingBody: "Thường mất 1–3 phút. Trang tự cập nhật khi xong, bạn không cần tải lại.",
+    renderingTitle: "Đang ghép video…",
+    renderingBody: "Đang nối các clip, lời dẫn và phụ đề. Thường mất 1–2 phút, trang tự cập nhật khi xong.",
+    renderingBodyLoop: "Đang lặp các cảnh cho bằng độ dài file âm thanh. Thường chưa tới 1 phút, trang tự cập nhật khi xong.",
     script: "Kịch bản",
     scriptSummary: (scenes, seconds) => ` · ${scenes} cảnh · ~${seconds}s`,
     regenerate: "Viết lại",
@@ -160,6 +187,19 @@ const vi: Dictionary = {
     refusedBody:
       "Thường do bộ lọc nội dung. Hãy làm dịu các chi tiết sợ hãi, nguy hiểm hoặc có người rình nhìn nhân vật rồi thử lại. Nếu khung hình đầu là cận mặt căng thẳng, hãy vẽ lại cả ảnh.",
     refusedReply: "Muse trả lời",
+    ambient: {
+      shotNote: "Ghi chú cảnh (không đọc)",
+      reference: "Ảnh tham chiếu",
+      referenceHint: "Áp dụng cho các hình vẽ từ giờ trở đi. Muốn áp dụng cho cảnh đã xong, bấm \"Cả ảnh\" để vẽ lại.",
+      scriptSummary: (shots, length) =>
+        ` · ${shots} cảnh, lặp lại đến hết audio${length ? ` · video dài ${length}` : ""}`,
+      soundtrack: "Âm thanh",
+      replace: "Đổi file âm thanh",
+      replaceHint: "Video đã xong sẽ được render lại với file mới.",
+      uploading: (percent) => `Đang tải lên… ${percent}%`,
+      editHint: "Thay đổi chỉ áp dụng cho cảnh này.",
+      finalBody: (shots, ratio) => `${shots} cảnh lặp liền mạch theo file âm thanh của bạn · ${ratio}`,
+    },
     thumbnail: {
       eyebrow: "Thumbnail",
       heading: "Thumbnail theo phong cách của ngách",
@@ -259,6 +299,15 @@ const vi: Dictionary = {
     tone: "Giọng văn",
     tonePlaceholder: "Hài hước, châm biếm nhẹ",
     language: "Ngôn ngữ lời thoại",
+    format: "Loại video",
+    formatHint: "Video kể chuyện có lời dẫn theo từng cảnh. Video lặp nền quay vài cảnh tĩnh của một nơi và lặp lại theo file âm thanh bạn tải lên.",
+    fixedCamera: "Một góc máy cố định",
+    fixedCameraHint:
+      "Muse vẽ một khung hình duy nhất và mọi cảnh đều bắt đầu từ đó, nên góc máy không đổi, chỉ chuyển động là khác nhau. Nếu tắt, mỗi cảnh là một góc nhìn khác của cùng nơi đó.",
+    formats: {
+      story: { title: "Kể chuyện", sub: "Kịch bản, lời dẫn, phụ đề" },
+      ambient: { title: "Lặp nền", sub: "Audio của bạn, cảnh lặp nhẹ nhàng" },
+    },
     narratorVoice: "Giọng thuyết minh (ElevenLabs voice ID)",
     narratorVoiceHint:
       "Không bắt buộc. Đọc cả video bằng một giọng duy nhất, clip chỉ giữ tiếng môi trường. Cần ELEVENLABS_API_KEY trong .env.",
@@ -300,6 +349,7 @@ const vi: Dictionary = {
     backHome: "Về tổng quan",
     nicheHasVideos: (n) => `Ngách này đang có ${n} video. Xoá các video đó trước khi xoá ngách.`,
     noReferenceImage: "Chưa chọn ảnh tham chiếu",
+    noSoundtrack: "Hãy tải file âm thanh cho video lặp nền này",
   },
 };
 

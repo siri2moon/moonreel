@@ -14,31 +14,37 @@ import {
   ImagePlus,
   Megaphone,
   Mic,
+  Music,
   Pencil,
   Plus,
   RotateCcw,
   Save,
   Sparkles,
+  StickyNote,
   Trash,
   Video,
   WandSparkles,
   X,
 } from "lucide-react";
 import Link from "next/link";
-import { useEffect, useRef, useState, useTransition } from "react";
+import { createContext, useContext, useEffect, useRef, useState, useTransition, type ReactNode } from "react";
 import {
   approveAndProduce,
   deleteProject,
   editScene,
   regeneratePosts,
   regenerateScript,
+  replaceSoundtrack,
   rerender,
+  setReferenceImage,
   retryScenes,
   saveScript,
   updateThumbnail,
   type SceneInput,
   type ThumbnailInput,
 } from "@/app/actions";
+import { ReferenceImageUpload } from "@/components/reference-image-upload";
+import { formatDuration, SoundtrackUpload } from "@/components/soundtrack-upload";
 import { StatusBadge } from "@/components/status-badge";
 import { Button, buttonClass, Card, ErrorNote, inputClass } from "@/components/ui";
 import { useI18n } from "@/i18n/client";
@@ -50,6 +56,28 @@ const BUSY = new Set(["scripting", "producing", "rendering"]);
 const POLL_MS = 3_000;
 
 type Scene = ProjectView["scenes"][number];
+
+/**
+ * Set for ambient videos, which loop under an uploaded soundtrack: the "narration" is a silent
+ * shot note and the video runs as long as the audio.
+ */
+const AmbientContext = createContext<{ audioSeconds: number | null } | null>(null);
+
+/** Label and word counter of the narration field; ambient shot notes have no word budget. */
+function NarrationLabel({ text }: { text: string }) {
+  const { t } = useI18n();
+  const ambient = useContext(AmbientContext);
+  const words = text.trim().split(/\s+/).filter(Boolean).length;
+  return (
+    <span className="flex items-center justify-between text-xs text-muted">
+      <span className="flex items-center gap-1.5">
+        {ambient ? <StickyNote className="size-3.5 text-gold/80" /> : <Mic className="size-3.5 text-gold/80" />}
+        {ambient ? t.project.ambient.shotNote : t.project.narration}
+      </span>
+      {!ambient && <span className={words > 25 ? "text-warning" : "text-subtle"}>{t.project.words(words)}</span>}
+    </span>
+  );
+}
 
 function toDraft(scenes: Scene[]): SceneInput[] {
   return scenes.map(({ narration, visualPrompt, camera }) => ({ narration, visualPrompt, camera }));
@@ -116,68 +144,104 @@ export function ProjectEditor({ initial }: { initial: ProjectView }) {
   const editable = isEditable(view);
   const scenesForAction = draft.filter((s) => s.narration.trim() && s.visualPrompt.trim());
 
+  const ambient = view.niche.format === "ambient" ? { audioSeconds: view.audioSeconds } : null;
+
   return (
-    <div className="flex flex-col gap-8">
-      <Header view={view} onDelete={() => run(() => deleteProject(view.id))} pending={pending} />
-      <Stepper view={view} editable={editable} />
+    <AmbientContext value={ambient}>
+      <div className="flex flex-col gap-8">
+        <Header view={view} onDelete={() => run(() => deleteProject(view.id))} pending={pending} />
+        <Stepper view={view} editable={editable} />
 
-      {(view.error || actionError) && <ErrorNote>{actionError ?? view.error}</ErrorNote>}
+        {(view.error || actionError) && <ErrorNote>{actionError ?? view.error}</ErrorNote>}
 
-      {view.status === "scripting" && <Writing />}
+        {view.status === "scripting" && <Writing />}
 
-      {view.status === "failed" && view.scenes.length === 0 && (
-        <div>
-          <Button
-            disabled={pending}
-            onClick={() => run(() => regenerateScript(view.id), { status: "scripting", error: null })}
-          >
-            <RotateCcw /> {t.project.rewrite}
-          </Button>
-        </div>
-      )}
+        {ambient !== null && view.status !== "scripting" && (
+          <div className="grid gap-4 md:grid-cols-[1fr_minmax(0,320px)]">
+            <Card className="flex flex-col gap-3 p-5">
+              <span className="flex items-center gap-2 text-[11px] font-semibold tracking-[0.2em] text-gold uppercase">
+                <Music className="size-3.5" /> {t.project.ambient.soundtrack}
+              </span>
+              <SoundtrackUpload
+                initialUrl={view.audioUrl}
+                disabled={pending || view.status === "rendering"}
+                onUploaded={(key) =>
+                  run(
+                    () => replaceSoundtrack(view.id, key),
+                    view.status === "done" ? { status: "rendering", error: null } : undefined,
+                  )
+                }
+              />
+              <p className="text-xs text-subtle">{t.project.ambient.replaceHint}</p>
+            </Card>
+            <Card className="flex flex-col gap-3 p-5">
+              <span className="flex items-center gap-2 text-[11px] font-semibold tracking-[0.2em] text-gold uppercase">
+                <ImagePlus className="size-3.5" /> {t.project.ambient.reference}
+              </span>
+              <ReferenceImageUpload
+                initialUrl={view.referenceImageUrl}
+                disabled={pending}
+                onChange={(key) => run(() => setReferenceImage(view.id, key))}
+              />
+              <p className="text-xs text-subtle">{t.project.ambient.referenceHint}</p>
+            </Card>
+          </div>
+        )}
 
-      {editable && (
-        <ScriptEditor
-          title={title}
-          setTitle={setTitle}
-          draft={draft}
-          setDraft={setDraft}
-          sceneSeconds={view.niche.sceneSeconds}
-          pending={pending}
-          onSave={() => run(() => saveScript(view.id, title, scenesForAction))}
-          onRegenerate={() => run(() => regenerateScript(view.id), { status: "scripting", error: null })}
-          onApprove={() =>
-            run(() => approveAndProduce(view.id, title, scenesForAction), {
-              status: "producing",
-              error: null,
-            })
-          }
-        />
-      )}
+        {view.status === "failed" && view.scenes.length === 0 && (
+          <div>
+            <Button
+              disabled={pending}
+              onClick={() => run(() => regenerateScript(view.id), { status: "scripting", error: null })}
+            >
+              <RotateCcw /> {t.project.rewrite}
+            </Button>
+          </div>
+        )}
 
-      {!editable && view.scenes.length > 0 && view.status !== "scripting" && (
-        <Production
-          view={view}
-          pending={pending}
-          onRetry={(ids, newKeyframe) =>
-            run(() => retryScenes(view.id, ids, { newKeyframe }), { status: "producing", error: null })
-          }
-          onRender={() => run(() => rerender(view.id), { status: "rendering", error: null })}
-          onRegeneratePosts={() =>
-            run(() => regeneratePosts(view.id), { postsStatus: "writing", postsError: null })
-          }
-          onThumbnail={(input, newImage) =>
-            run(() => updateThumbnail(view.id, input, { newImage }), {
-              thumbnailStatus: "drawing",
-              thumbnailError: null,
-            })
-          }
-          onEdit={(sceneId, input, newKeyframe) =>
-            run(() => editScene(view.id, sceneId, input, { newKeyframe }), { status: "producing", error: null })
-          }
-        />
-      )}
-    </div>
+        {editable && (
+          <ScriptEditor
+            title={title}
+            setTitle={setTitle}
+            draft={draft}
+            setDraft={setDraft}
+            sceneSeconds={view.niche.sceneSeconds}
+            pending={pending}
+            onSave={() => run(() => saveScript(view.id, title, scenesForAction))}
+            onRegenerate={() => run(() => regenerateScript(view.id), { status: "scripting", error: null })}
+            onApprove={() =>
+              run(() => approveAndProduce(view.id, title, scenesForAction), {
+                status: "producing",
+                error: null,
+              })
+            }
+          />
+        )}
+
+        {!editable && view.scenes.length > 0 && view.status !== "scripting" && (
+          <Production
+            view={view}
+            pending={pending}
+            onRetry={(ids, newKeyframe) =>
+              run(() => retryScenes(view.id, ids, { newKeyframe }), { status: "producing", error: null })
+            }
+            onRender={() => run(() => rerender(view.id), { status: "rendering", error: null })}
+            onRegeneratePosts={() =>
+              run(() => regeneratePosts(view.id), { postsStatus: "writing", postsError: null })
+            }
+            onThumbnail={(input, newImage) =>
+              run(() => updateThumbnail(view.id, input, { newImage }), {
+                thumbnailStatus: "drawing",
+                thumbnailError: null,
+              })
+            }
+            onEdit={(sceneId, input, newKeyframe) =>
+              run(() => editScene(view.id, sceneId, input, { newKeyframe }), { status: "producing", error: null })
+            }
+          />
+        )}
+      </div>
+    </AmbientContext>
   );
 }
 
@@ -300,18 +364,23 @@ function Stepper({ view, editable }: { view: ProjectView; editable: boolean }) {
 
 function Writing() {
   const { t } = useI18n();
+  return <Working icon={<WandSparkles className="size-6" />} title={t.project.writingTitle} body={t.project.writingBody} />;
+}
+
+/** A background job is running; the page polls and swaps this out when it finishes. */
+function Working({ icon, title, body }: { icon: ReactNode; title: string; body: string }) {
   return (
     <Card className="gold-ring relative flex flex-col items-center gap-5 overflow-hidden px-6 py-16 text-center">
       <div className="pointer-events-none absolute top-1/2 left-1/2 size-72 -translate-x-1/2 -translate-y-1/2 rounded-full bg-gold/10 blur-[80px]" />
       <span className="relative flex size-16 items-center justify-center">
         <span className="absolute inset-0 animate-ping rounded-full bg-gold/20" />
         <span className="bg-gold relative flex size-14 items-center justify-center rounded-full text-[#21180a]">
-          <WandSparkles className="size-6" />
+          {icon}
         </span>
       </span>
       <div className="relative flex flex-col gap-1.5">
-        <h2 className="text-lg font-semibold">{t.project.writingTitle}</h2>
-        <p className="text-sm text-muted">{t.project.writingBody}</p>
+        <h2 className="text-lg font-semibold">{title}</h2>
+        <p className="text-sm text-muted">{body}</p>
       </div>
     </Card>
   );
@@ -330,6 +399,7 @@ function ScriptEditor(props: {
 }) {
   const { title, setTitle, draft, setDraft, sceneSeconds, pending } = props;
   const { t } = useI18n();
+  const ambient = useContext(AmbientContext);
 
   const update = (i: number, patch: Partial<SceneInput>) =>
     setDraft((d) => d.map((s, j) => (j === i ? { ...s, ...patch } : s)));
@@ -349,7 +419,14 @@ function ScriptEditor(props: {
       <div className="glass sticky top-[7.5rem] z-10 flex flex-wrap items-center justify-between gap-3 rounded-2xl p-3 pl-5 lg:top-4">
         <div className="text-sm">
           <span className="font-semibold">{t.project.script}</span>
-          <span className="text-muted">{t.project.scriptSummary(draft.length, draft.length * sceneSeconds)}</span>
+          <span className="text-muted">
+            {ambient
+              ? t.project.ambient.scriptSummary(
+                  draft.length,
+                  ambient.audioSeconds ? formatDuration(ambient.audioSeconds) : null,
+                )
+              : t.project.scriptSummary(draft.length, draft.length * sceneSeconds)}
+          </span>
         </div>
         <div className="flex flex-wrap gap-2">
           <Button variant="ghost" size="sm" disabled={pending} onClick={props.onRegenerate}>
@@ -378,7 +455,6 @@ function ScriptEditor(props: {
 
       <div className="flex flex-col gap-4">
         {draft.map((scene, i) => {
-          const words = scene.narration.trim().split(/\s+/).filter(Boolean).length;
           return (
             <Card key={i} className="group flex gap-4 p-5 transition glass-hover">
               <div className="flex flex-col items-center gap-1">
@@ -412,12 +488,7 @@ function ScriptEditor(props: {
 
               <div className="flex min-w-0 flex-1 flex-col gap-4">
                 <label className="flex flex-col gap-2">
-                  <span className="flex items-center justify-between text-xs text-muted">
-                    <span className="flex items-center gap-1.5">
-                      <Mic className="size-3.5 text-gold/80" /> {t.project.narration}
-                    </span>
-                    <span className={words > 25 ? "text-warning" : "text-subtle"}>{t.project.words(words)}</span>
-                  </span>
+                  <NarrationLabel text={scene.narration} />
                   <textarea
                     rows={2}
                     value={scene.narration}
@@ -493,6 +564,14 @@ function Production({
 
   return (
     <div className="flex flex-col gap-8">
+      {view.status === "rendering" && (
+        <Working
+          icon={<Film className="size-6" />}
+          title={t.project.renderingTitle}
+          body={view.niche.format === "ambient" ? t.project.renderingBodyLoop : t.project.renderingBody}
+        />
+      )}
+
       {view.finalVideoUrl && view.status === "done" && (
         <Card className="gold-ring relative overflow-hidden p-5 md:p-8">
           <div className="pointer-events-none absolute -top-24 -left-24 size-80 rounded-full bg-gold/15 blur-[100px]" />
@@ -509,13 +588,17 @@ function Production({
                 <Sparkles className="size-3.5" /> {t.project.final}
               </span>
               <h2 className="text-2xl font-bold tracking-tight">{t.project.finalTitle}</h2>
-              <p className="text-sm text-muted">{t.project.finalBody(total, view.aspectRatio)}</p>
+              <p className="text-sm text-muted">
+                {view.niche.format === "ambient"
+                  ? t.project.ambient.finalBody(total, view.aspectRatio)
+                  : t.project.finalBody(total, view.aspectRatio)}
+              </p>
               <div className="flex flex-wrap gap-2">
-                <a href={`${view.finalVideoUrl}&download`} className={buttonClass("primary", "lg")}>
+                <a href={`${view.finalVideoUrl}&download=${view.fileSlug}`} className={buttonClass("primary", "lg")}>
                   <Download /> {t.project.downloadMp4}
                 </a>
                 {view.captionsUrl && (
-                  <a href={`${view.captionsUrl}&download`} className={buttonClass("secondary", "lg")}>
+                  <a href={`${view.captionsUrl}&download=${view.fileSlug}`} className={buttonClass("secondary", "lg")}>
                     <Captions /> {t.project.downloadSrt}
                   </a>
                 )}
@@ -649,7 +732,7 @@ function ThumbnailPanel({
               )}
             </div>
             {spec.url && !drawing && (
-              <a href={`${spec.url}&download`} className={`${buttonClass("primary", "md")} self-start`}>
+              <a href={`${spec.url}&download=${view.fileSlug}-thumbnail`} className={`${buttonClass("primary", "md")} self-start`}>
                 <Download /> {tt.download}
               </a>
             )}
@@ -950,6 +1033,7 @@ function SceneEditDialog({
   onSubmit: (input: SceneInput, newKeyframe: boolean) => void;
 }) {
   const { t } = useI18n();
+  const ambient = useContext(AmbientContext);
   const ref = useRef<HTMLDialogElement>(null);
   const [draft, setDraft] = useState<SceneInput>({
     narration: scene.narration,
@@ -960,7 +1044,6 @@ function SceneEditDialog({
     ref.current?.showModal();
   }, []);
 
-  const words = draft.narration.trim().split(/\s+/).filter(Boolean).length;
   const visualChanged = draft.visualPrompt.trim() !== scene.visualPrompt.trim();
   const valid = draft.narration.trim() !== "" && draft.visualPrompt.trim() !== "";
   const submit = (newKeyframe: boolean) => {
@@ -978,7 +1061,7 @@ function SceneEditDialog({
         <div className="flex items-start justify-between gap-4">
           <div className="flex flex-col gap-1">
             <h2 className="text-lg font-semibold">{t.project.editTitle(scene.index + 1)}</h2>
-            <p className="text-xs text-subtle">{t.project.editHint}</p>
+            <p className="text-xs text-subtle">{ambient ? t.project.ambient.editHint : t.project.editHint}</p>
           </div>
           <Button variant="ghost" size="icon" onClick={() => ref.current?.close()} title={t.project.cancel}>
             <X />
@@ -986,12 +1069,7 @@ function SceneEditDialog({
         </div>
 
         <label className="flex flex-col gap-2">
-          <span className="flex items-center justify-between text-xs text-muted">
-            <span className="flex items-center gap-1.5">
-              <Mic className="size-3.5 text-gold/80" /> {t.project.narration}
-            </span>
-            <span className={words > 25 ? "text-warning" : "text-subtle"}>{t.project.words(words)}</span>
-          </span>
+          <NarrationLabel text={draft.narration} />
           <textarea
             rows={3}
             value={draft.narration}

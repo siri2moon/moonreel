@@ -23,6 +23,7 @@ Vertical 9:16 for TikTok · Reels · Shorts, and 16:9 for YouTube. Powered by Me
 - **A consistent character.** Describe a character once and let Muse draw a reference image, or upload your own. Every scene is generated from that reference.
 - **Scene-by-scene production.** Each scene gets a keyframe and then an image-to-video clip. Progress updates live, and any single scene can be retried.
 - **Ready-to-post output.** FFmpeg normalises and joins the clips into one MP4 with embedded soft subtitles, plus a separate `.srt` file.
+- **Ambient loops for your own audio.** Set a niche's video type to *Ambient loop*, describe a place and upload a soundtrack (up to 1 GB). Muse films a few calm shots of it; they crossfade into one seamless loop that repeats until the audio ends, so an hour-long video renders in seconds.
 - **Thumbnails in the channel's style.** Each niche picks a template (Impact, Cinematic or Boxed), an accent colour and a brand label. Muse draws a photo framed for the headline, and the worker lays the headline over it as a 1280×720 (or 1080×1920) JPEG.
 - **Captions for every platform.** After the render, a YouTube title, description with chapters and tags, plus TikTok, Instagram and Facebook captions are written from the script, each with a copy button.
 - **English and Vietnamese UI.** The language follows your browser (English when it prefers neither) and can be switched from the sidebar.
@@ -241,6 +242,10 @@ The repository ships four sample niches (`scripts/default-niches.ts`). Niches fo
 - `pnpm db:seed` inserts the sample niches and every file in that folder, skipping slugs that already exist, so a fresh database gets your niches back.
 
 Fields match the niche form; `scriptInstructions` may be a string or an array of lines. Default characters are not exported, because their ids only exist in your database.
+
+### Ambient loops
+
+Niches whose **Video type** is *Ambient loop* make background videos for music and soundscapes (study, relax, sleep) instead of narrated stories. The topic describes the place, and the new-video page asks for the soundtrack (MP3, M4A, AAC, WAV, OGG or FLAC). Muse plans one shot per scene, each with gentle, steady motion and a short shot note instead of narration. At render time the clips crossfade into each other and the last fades back into the first, the loop is repeated without re-encoding to the length of the soundtrack, and the clips' own sound is dropped. Words rarely pin down a place exactly, so you can also attach a **reference photo** of a similar spot (JPG, PNG or WebP): Muse uses it as a visual guide for every keyframe and the thumbnail, while the description still decides where they differ. Muse takes one reference image, so the photo replaces a character's reference sheet. Turn on **One fixed camera** in the niche settings to draw a single frame and start every shot from it, so only the motion changes. The camera must stay still: each clip is measured (SSIM of its first frame against later ones), and one where Muse zoomed or panned is made again, up to three times. Swap the soundtrack on the video page at any time; a finished video is rendered again with it. Chapters are left out; captions and thumbnails work as usual.
 
 ### One narrator voice (ElevenLabs)
 
