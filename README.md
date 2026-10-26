@@ -6,7 +6,9 @@
 
 Turn a topic into a finished short video with a niche-aware AI script, a recurring character and automatic rendering. Vertical 9:16 for TikTok · Reels · Shorts, and 16:9 for YouTube.
 
-<img src="moonreel-studio/docs/images/dashboard.jpg" alt="MoonReel Studio" width="900" />
+[Studio docs](moonreel-studio/README.md) · [Architecture](moonreel-studio/docs/ARCHITECTURE.md) · [Contributing](CONTRIBUTING.md)
+
+<img src="moonreel-studio/docs/images/demo.gif" alt="MoonReel Studio demo: type an idea, review the AI script, watch each scene render, download the video" width="900" />
 
 </div>
 
@@ -42,6 +44,13 @@ pnpm worker                     # terminal 2
 
 - [Studio README](moonreel-studio/README.md): installation, configuration, usage, troubleshooting
 - [Architecture](moonreel-studio/docs/ARCHITECTURE.md): data model, job pipeline, limits, design language
+- [Contributing](CONTRIBUTING.md): development setup, conventions, pull request checklist
+
+## Contributing
+
+MoonReel is open source and contributions are welcome: bug reports, docs, translations, sample niches and new AI providers. Start with **[CONTRIBUTING.md](CONTRIBUTING.md)**, browse [`good first issue`](https://github.com/siri2moon/moonreel/labels/good%20first%20issue), or open an issue to discuss an idea.
+
+Please report security problems privately through [GitHub security advisories](https://github.com/siri2moon/moonreel/security/advisories/new), not in public issues.
 
 ## License
 

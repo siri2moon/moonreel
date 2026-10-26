@@ -6,9 +6,11 @@
 
 Vertical 9:16 for TikTok · Reels · Shorts, and 16:9 for YouTube. Powered by Meta Muse.
 
-[Features](#features) · [Quick start](#quick-start) · [Configuration](#configuration) · [Usage](#usage) · [Troubleshooting](#troubleshooting) · [Architecture](docs/ARCHITECTURE.md)
+[Features](#features) · [Quick start](#quick-start) · [Configuration](#configuration) · [Usage](#usage) · [Troubleshooting](#troubleshooting) · [Contributing](#contributing) · [Architecture](docs/ARCHITECTURE.md)
 
-<img src="docs/images/dashboard.jpg" alt="MoonReel Studio dashboard" width="900" />
+<img src="docs/images/demo.gif" alt="MoonReel Studio demo: pick a niche, type an idea, review the AI script, watch every scene render, download the final video" width="900" />
+
+<sub>Pick a niche → type an idea → review the script → watch each scene render → download. (Production sped up.)</sub>
 
 </div>
 
@@ -21,22 +23,31 @@ Vertical 9:16 for TikTok · Reels · Shorts, and 16:9 for YouTube. Powered by Me
 - **A consistent character.** Describe a character once and let Muse draw a reference image, or upload your own. Every scene is generated from that reference.
 - **Scene-by-scene production.** Each scene gets a keyframe and then an image-to-video clip. Progress updates live, and any single scene can be retried.
 - **Ready-to-post output.** FFmpeg normalises and joins the clips into one MP4 with embedded soft subtitles, plus a separate `.srt` file.
+- **English and Vietnamese UI.** The language follows your browser (English when it prefers neither) and can be switched from the sidebar.
 - **Runs on your machine.** Next.js, Postgres and a background worker run locally. AI usage comes out of your own muse.ai account; there are no extra API fees.
 
 <table>
   <tr>
-    <td><img src="docs/images/niche-picker.jpg" alt="Niche picker" /></td>
-    <td><img src="docs/images/new-video.jpg" alt="New video form" /></td>
+    <td width="50%"><img src="docs/images/niche-picker.jpg" alt="Niche picker" /></td>
+    <td width="50%"><img src="docs/images/new-video.jpg" alt="New video form" /></td>
   </tr>
   <tr>
-    <td align="center"><sub>Niche picker</sub></td>
-    <td align="center"><sub>New video</sub></td>
+    <td align="center"><sub>Pick a niche: script rules, tone and visual style per channel</sub></td>
+    <td align="center"><sub>Type an idea, choose the format and a recurring character</sub></td>
   </tr>
   <tr>
-    <td colspan="2"><img src="docs/images/project.jpg" alt="Finished project with per-scene production" /></td>
+    <td width="50%"><img src="docs/images/script.jpg" alt="Script review" /></td>
+    <td width="50%"><img src="docs/images/production.jpg" alt="Per-scene production" /></td>
   </tr>
   <tr>
-    <td colspan="2" align="center"><sub>Finished video and per-scene production</sub></td>
+    <td align="center"><sub>Review and edit the scene-by-scene script</sub></td>
+    <td align="center"><sub>Keyframe, then clip, for every scene, with live progress</sub></td>
+  </tr>
+  <tr>
+    <td colspan="2"><img src="docs/images/project.jpg" alt="Finished video ready to download" /></td>
+  </tr>
+  <tr>
+    <td colspan="2" align="center"><sub>The final MP4 with subtitles, ready to post</sub></td>
   </tr>
 </table>
 
@@ -129,7 +140,7 @@ pnpm db:seed    # add 4 sample niches (safe to re-run)
 
 ### 5. Connect your muse.ai account
 
-Opening the admin page and entering the key is **not** enough. You must add a muse.ai account, otherwise the app keeps showing "Muse chưa kết nối" (Muse not connected).
+Opening the admin page and entering the key is **not** enough. You must add a muse.ai account, otherwise the app keeps showing **Muse not connected** (*Muse chưa kết nối*).
 
 1. Open **`http://localhost:18610/admin?key=<MUSE2API_KEY>`**.
 2. Add an account using one of the three methods below.
@@ -182,7 +193,7 @@ pnpm dev       # web app → http://localhost:3000
 pnpm worker    # background jobs: Muse calls and FFmpeg rendering
 ```
 
-Use `pnpm dev --port 3100` if port 3000 is already taken. Once the bottom of the sidebar shows **Muse đã kết nối** (Muse connected) with a green dot, you are ready.
+Use `pnpm dev --port 3100` if port 3000 is already taken. Once the bottom of the sidebar shows **Muse connected** (*Muse đã kết nối*) with a green dot, you are ready.
 
 ## Configuration
 
@@ -200,13 +211,13 @@ muse2api's own data (accounts, cookies, task history) is stored in `~/.moonreel/
 
 ## Usage
 
-The interface is currently in Vietnamese; the labels below are given in English with the on-screen text in parentheses.
+The interface is available in English and Vietnamese. It follows your browser's language, falls back to English, and the **EN / VI** switch at the bottom of the sidebar overrides it. Labels below are the English ones, with the Vietnamese text in parentheses.
 
-1. **Choose a niche.** On first visit the app opens on the niche picker. The choice is remembered in your browser. Use **Switch niche** (*Đổi ngách*) in the sidebar to change it, and **Configure** (*Cấu hình*) to edit its script instructions, tone, language, visual style, scene count, seconds per scene, default format and default character.
+1. **Choose a niche.** On first visit the app opens on the niche picker. The choice is remembered in your browser. Use **Switch niche** (*Đổi ngách*) in the sidebar to change it, and **Settings** (*Cấu hình*) to edit its script instructions, tone, language, visual style, scene count, seconds per scene, default format and default character.
 2. **Create a character** (*Nhân vật*). Describe the appearance **in English** and in detail (age, face, hair, outfit, colours, art style). Then let Muse draw the reference image (about a minute, in the background) or upload your own.
 3. **Start a video** (*Tạo video*). Enter a topic, then pick the format and character; both are preselected from the niche configuration.
 4. **Review the script.** Muse writes it in 1–3 minutes and the page updates by itself. Edit any scene, reorder, add or remove scenes, then click **Approve & produce** (*Duyệt & sản xuất*).
-5. **Watch production.** Each scene takes about 2–4 minutes (keyframe, then clip). If a scene fails or looks wrong, use **Redo clip** (*Làm lại clip*) or **Redo image too** (*Cả ảnh*).
+5. **Watch production.** Each scene takes about 2–4 minutes (keyframe, then clip). If a scene fails or looks wrong, use **Redo clip** (*Làm lại clip*) or **With image** (*Cả ảnh*) to redraw the keyframe as well. **Edit** (*Sửa*) lets you rewrite that scene's narration, visual description or camera first. If Muse declines a scene, the card says so and shows Muse's reply; soften the description and try again.
 6. **Download.** When every scene is done the video is rendered automatically. Download the MP4 and the `.srt` captions from the project page.
 
 ### Tips for better results
@@ -232,7 +243,7 @@ The interface is currently in Vietnamese; the labels below are given in English 
 ## Troubleshooting
 
 <details>
-<summary><b>The sidebar says "Muse chưa kết nối" (Muse not connected)</b></summary>
+<summary><b>The sidebar says "Muse not connected"</b></summary>
 
 - Check that the container is running: `docker compose ps` should list `moonreel-muse2api` as up.
 - Open `http://localhost:18610/admin?key=<MUSE2API_KEY>`. Entering the key only unlocks the admin page; you still need to **add a muse.ai account** (step 5). Total accounts must be at least 1 and ready.
@@ -262,7 +273,7 @@ You create it. Any long random string works; run `openssl rand -hex 32`, put it 
 </details>
 
 <details>
-<summary><b>A scene is stuck in "Tạo clip" (creating clip) after restarting the worker</b></summary>
+<summary><b>A scene is stuck in "Making clip" (*Tạo clip*) after restarting the worker</b></summary>
 
 A worker restart interrupts the scene in progress. Use **Redo clip** on that scene; finished scenes are never regenerated. Avoid `pnpm worker:watch` while jobs are running.
 
@@ -271,7 +282,7 @@ A worker restart interrupts the scene in progress. Use **Redo clip** on that sce
 <details>
 <summary><b>"Script generation failed"</b></summary>
 
-Muse occasionally returns a malformed or partial answer. The app retries and repairs once automatically; if it still fails, click **Write again** (*Viết lại kịch bản*). The `pnpm worker` terminal logs the raw reply for debugging.
+Muse occasionally returns a malformed or partial answer. The app retries and repairs once automatically; if it still fails, click **Rewrite script** (*Viết lại kịch bản*). The `pnpm worker` terminal logs the raw reply for debugging.
 
 </details>
 
@@ -300,7 +311,11 @@ moonreel-studio/
 │   └── images/               README screenshots
 ├── scripts/seed.ts           Sample niches
 └── src/
-    ├── app/                  Pages (App Router), server actions, API routes
+    ├── app/
+    │   ├── [lang]/           Pages (App Router), one tree per locale
+    │   ├── api/              Route handlers
+    │   └── actions.ts        Server actions
+    ├── i18n/                 Locale negotiation and the en / vi dictionaries
     ├── components/           Design system (ui.tsx), sky background, logo, sidebar, niche picker
     ├── db/schema.ts          niches · characters · projects · scenes
     ├── lib/
@@ -309,6 +324,7 @@ moonreel-studio/
     │   ├── active-niche.ts   Active niche (cookie)
     │   ├── queue.ts          pg-boss queues
     │   └── storage.ts        File storage
+    ├── proxy.ts              Picks the locale and rewrites URLs into app/[lang]
     └── worker/index.ts       Worker process
 ```
 
@@ -318,17 +334,31 @@ moonreel-studio/
 - [ ] Burned-in captions, background music and transitions
 - [ ] MCP-connector mode, so Muse pulls jobs directly from the app
 - [ ] Auto-publishing to TikTok and YouTube
-- [ ] English UI (i18n)
 
 ## Contributing
 
-Issues and pull requests are welcome. Before opening a PR:
+Contributions of every size are welcome: bug reports, docs fixes, translations, new niches, new providers. Read **[CONTRIBUTING.md](../CONTRIBUTING.md)** for the full guide. In short:
 
-```bash
-pnpm typecheck && pnpm lint
-```
+1. **Open an issue first** for anything bigger than a small fix, so we can agree on the approach.
+2. **Fork, then branch** from `main` (`feat/…`, `fix/…`, `docs/…`).
+3. **Follow the conventions:** English code comments and docs; UI text goes in both `src/i18n/dictionaries/en.ts` and `vi.ts`; no database queries inside loops.
+4. **Check before pushing:**
 
-Keep code comments and documentation in English.
+   ```bash
+   pnpm typecheck && pnpm lint && pnpm build
+   ```
+
+5. **Open a pull request** that explains what changed and why. Add a screenshot or GIF for UI changes.
+
+Good first contributions:
+
+- A new **UI language**: copy `src/i18n/dictionaries/en.ts`, translate it, then register the code in `src/i18n/config.ts` and `src/i18n/dictionaries/index.ts`.
+- A new **sample niche** in `scripts/seed.ts`.
+- A new **generation provider** (Kling, Seedance, …) behind `GenerationProvider` in `src/lib/providers/`.
+- Anything tagged [`good first issue`](https://github.com/siri2moon/moonreel/labels/good%20first%20issue).
+
+> [!CAUTION]
+> Never paste muse.ai cookies, `.env` contents or files from `~/.moonreel/` into issues, logs or pull requests.
 
 ## Acknowledgements
 
