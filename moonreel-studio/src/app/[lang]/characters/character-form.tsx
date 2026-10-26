@@ -3,7 +3,9 @@
 import { Image as ImageIcon, Trash, Upload, WandSparkles } from "lucide-react";
 import { useState } from "react";
 import { deleteCharacter, saveCharacter } from "@/app/actions";
-import { Button, Card, ErrorNote, Field, inputClass, StatusBadge } from "@/components/ui";
+import { StatusBadge } from "@/components/status-badge";
+import { Button, Card, ErrorNote, Field, inputClass } from "@/components/ui";
+import { useI18n } from "@/i18n/client";
 
 export interface CharacterFormValue {
   id: string;
@@ -18,14 +20,16 @@ export interface CharacterFormValue {
 type Mode = "keep" | "upload" | "generate";
 
 export function CharacterForm({ character }: { character?: CharacterFormValue }) {
+  const { t } = useI18n();
+  const f = t.characterForm;
   const [mode, setMode] = useState<Mode>(character ? "keep" : "generate");
   const [preview, setPreview] = useState<string | null>(null);
   const save = saveCharacter.bind(null, character?.id ?? null);
 
   const modes = [
-    { value: "keep" as const, label: "Giữ ảnh hiện tại", Icon: ImageIcon, hidden: !character },
-    { value: "generate" as const, label: "Muse vẽ từ mô tả", Icon: WandSparkles },
-    { value: "upload" as const, label: "Tải ảnh lên", Icon: Upload },
+    { value: "keep" as const, label: f.keep, Icon: ImageIcon, hidden: !character },
+    { value: "generate" as const, label: f.generate, Icon: WandSparkles },
+    { value: "upload" as const, label: f.upload, Icon: Upload },
   ].filter((m) => !m.hidden);
 
   const shown = mode === "upload" ? preview : mode === "keep" ? character?.referenceUrl : null;
@@ -33,12 +37,12 @@ export function CharacterForm({ character }: { character?: CharacterFormValue })
   return (
     <form action={save} className="grid gap-6 lg:grid-cols-[1fr_300px]">
       <Card className="flex flex-col gap-6 p-6 md:p-8">
-        <Field label="Tên nhân vật">
-          <input name="name" required defaultValue={character?.name} className={inputClass} placeholder="Ông Moon" />
+        <Field label={f.name}>
+          <input name="name" required defaultValue={character?.name} className={inputClass} placeholder={f.namePlaceholder} />
         </Field>
         <Field
-          label="Ngoại hình (tiếng Anh)"
-          hint="Tuổi, giới tính, khuôn mặt, tóc, trang phục, màu sắc, phong cách (3D / anime / realistic…)"
+          label={f.appearance}
+          hint={f.appearanceHint}
         >
           <textarea
             name="appearance"
@@ -49,18 +53,18 @@ export function CharacterForm({ character }: { character?: CharacterFormValue })
             placeholder="A friendly old philosopher, 3D Pixar style, long white beard, bald head, kind eyes, blue and cream toga, brown leather sandals"
           />
         </Field>
-        <Field label="Tính cách / cách nói chuyện">
+        <Field label={f.personality}>
           <textarea
             name="personality"
             rows={2}
             defaultValue={character?.personality}
             className={inputClass}
-            placeholder="Điềm đạm, hài hước, hay dùng ví dụ đời thường"
+            placeholder={f.personalityPlaceholder}
           />
         </Field>
 
         <fieldset className="flex flex-col gap-3">
-          <legend className="mb-2 text-[13px] font-medium">Ảnh tham chiếu</legend>
+          <legend className="mb-2 text-[13px] font-medium">{f.reference}</legend>
           <div className="grid gap-2 sm:grid-cols-3">
             {modes.map(({ value, label, Icon }) => (
               <label
@@ -94,9 +98,7 @@ export function CharacterForm({ character }: { character?: CharacterFormValue })
             />
           )}
           {mode === "generate" && (
-            <p className="text-xs text-subtle">
-              Muse sẽ vẽ ảnh toàn thân trên nền trơn, chạy nền khoảng 1 phút.
-            </p>
+            <p className="text-xs text-subtle">{f.generateHint}</p>
           )}
         </fieldset>
       </Card>
@@ -110,7 +112,7 @@ export function CharacterForm({ character }: { character?: CharacterFormValue })
             ) : (
               <div className="flex flex-col items-center gap-2 px-6 text-center text-xs text-subtle">
                 <WandSparkles className="size-8 text-gold/60" />
-                {mode === "generate" ? "Ảnh sẽ xuất hiện sau khi Muse vẽ xong" : "Chưa có ảnh"}
+                {mode === "generate" ? f.previewGenerate : f.noImage}
               </div>
             )}
           </div>
@@ -123,7 +125,7 @@ export function CharacterForm({ character }: { character?: CharacterFormValue })
         </Card>
 
         <Button type="submit" size="lg" className="w-full">
-          {character ? "Lưu nhân vật" : "Tạo nhân vật"}
+          {character ? f.save : f.create}
         </Button>
         {character && (
           <Button
@@ -132,9 +134,9 @@ export function CharacterForm({ character }: { character?: CharacterFormValue })
             formNoValidate
             type="submit"
             className="w-full"
-            onClick={(e) => !confirm("Xoá nhân vật này?") && e.preventDefault()}
+            onClick={(e) => !confirm(f.confirmDelete) && e.preventDefault()}
           >
-            <Trash /> Xoá nhân vật
+            <Trash /> {f.delete}
           </Button>
         )}
       </aside>

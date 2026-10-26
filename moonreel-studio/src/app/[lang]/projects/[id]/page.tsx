@@ -4,7 +4,7 @@ import { Loading } from "@/components/ui";
 import { getProjectView } from "@/lib/views";
 import { ProjectEditor } from "./project-editor";
 
-export default function ProjectPage(props: PageProps<"/projects/[id]">) {
+export default function ProjectPage(props: PageProps<"/[lang]/projects/[id]">) {
   return (
     <Suspense fallback={<Loading />}>
       <ProjectContent params={props.params} />
@@ -12,7 +12,7 @@ export default function ProjectPage(props: PageProps<"/projects/[id]">) {
   );
 }
 
-async function ProjectContent({ params }: { params: PageProps<"/projects/[id]">["params"] }) {
+async function ProjectContent({ params }: { params: PageProps<"/[lang]/projects/[id]">["params"] }) {
   const { id } = await params;
   const view = await getProjectView(id);
   if (!view) notFound();

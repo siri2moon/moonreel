@@ -8,6 +8,8 @@ import path from "node:path";
 import { z } from "zod";
 import { db } from "@/db";
 import { NICHE_COOKIE } from "@/lib/active-niche";
+import { hasLocale, LOCALE_COOKIE } from "@/i18n/config";
+import { getActionDictionary } from "@/i18n/action";
 import { characters, niches, projects, scenes } from "@/db/schema";
 import {
   enqueueCharacterReference,
@@ -25,7 +27,7 @@ const nicheSchema = z.object({
     .string()
     .trim()
     .min(1)
-    .regex(/^[a-z0-9-]+$/, "slug: chỉ chữ thường, số và dấu gạch ngang"),
+    .regex(/^[a-z0-9-]+$/, "slug: lowercase letters, numbers and hyphens only"),
   icon: z.string().trim().min(1).max(8).default("✦"),
   description: z.string().trim().default(""),
   scriptInstructions: z.string().trim().min(1),
@@ -74,7 +76,7 @@ export async function deleteNiche(id: string) {
     .from(projects)
     .where(eq(projects.nicheId, id));
   if (total > 0) {
-    throw new Error(`Ngách này đang có ${total} video. Xoá các video đó trước khi xoá ngách.`);
+    throw new Error((await getActionDictionary()).errors.nicheHasVideos(total));
   }
   await db.delete(niches).where(eq(niches.id, id));
   const store = await cookies();
@@ -112,7 +114,9 @@ export async function saveCharacter(id: string | null, formData: FormData) {
 
   if (referenceMode === "upload") {
     const file = formData.get("referenceImage");
-    if (!(file instanceof File) || file.size === 0) throw new Error("Chưa chọn ảnh tham chiếu");
+    if (!(file instanceof File) || file.size === 0) {
+      throw new Error((await getActionDictionary()).errors.noReferenceImage);
+    }
     const ext = IMAGE_EXT[file.type] ?? (path.extname(file.name) || ".png");
     const key = await saveFile(
       `characters/${row.id}/reference${ext}`,
@@ -230,6 +234,38 @@ export async function retryScenes(
   revalidatePath(`/projects/${projectId}`);
 }
 
+/** Rewrites one scene after production (e.g. Muse refused it) and queues it again. */
+export async function editScene(
+  projectId: string,
+  sceneId: string,
+  input: SceneInput,
+  opts: { newKeyframe: boolean },
+) {
+  const fields = sceneInputSchema.element.parse(input);
+  const updated = await db.transaction(async (tx) => {
+    const rows = await tx
+      .update(scenes)
+      .set({
+        ...fields,
+        status: "pending",
+        error: null,
+        clipPath: null,
+        ...(opts.newKeyframe ? { keyframePath: null } : {}),
+      })
+      .where(and(eq(scenes.id, sceneId), eq(scenes.projectId, projectId)))
+      .returning({ id: scenes.id });
+    if (rows.length === 0) return false;
+    await tx
+      .update(projects)
+      .set({ status: "producing", error: null, finalVideoPath: null, captionsPath: null })
+      .where(eq(projects.id, projectId));
+    return true;
+  });
+  if (!updated) return;
+  await enqueueScenes([sceneId]);
+  revalidatePath(`/projects/${projectId}`);
+}
+
 export async function rerender(projectId: string) {
   await db.update(projects).set({ status: "rendering", error: null }).where(eq(projects.id, projectId));
   await enqueueRender(projectId);
@@ -240,4 +276,15 @@ export async function deleteProject(projectId: string) {
   await db.delete(projects).where(eq(projects.id, projectId));
   revalidatePath("/");
   redirect("/");
+}
+
+// -------------------------------------------------------------- language
+
+export async function setLocale(locale: string) {
+  if (!hasLocale(locale)) return;
+  (await cookies()).set(LOCALE_COOKIE, locale, {
+    path: "/",
+    maxAge: 60 * 60 * 24 * 365,
+    sameSite: "lax",
+  });
 }

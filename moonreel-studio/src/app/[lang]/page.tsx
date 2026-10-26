@@ -19,7 +19,10 @@ import { Suspense } from "react";
 import { db } from "@/db";
 import { projects, scenes, type Niche } from "@/db/schema";
 import { NichePicker } from "@/components/niche-picker";
-import { Chip, Empty, Eyebrow, LinkButton, Loading, SectionTitle, Stat, StatusBadge } from "@/components/ui";
+import { StatusBadge } from "@/components/status-badge";
+import { Chip, Empty, Eyebrow, LinkButton, Loading, SectionTitle, Stat } from "@/components/ui";
+import type { Dictionary } from "@/i18n/dictionaries";
+import { getDictionary } from "@/i18n/server";
 import { getActiveNiche } from "@/lib/active-niche";
 import { fileUrl } from "@/lib/storage";
 
@@ -38,7 +41,7 @@ async function Home() {
 }
 
 async function Dashboard({ niche }: { niche: Niche }) {
-  const [[stats], rows] = await Promise.all([
+  const [[stats], rows, t] = await Promise.all([
     db
       .select({
         total: sql<number>`count(*)::int`,
@@ -62,17 +65,18 @@ async function Dashboard({ niche }: { niche: Niche }) {
         },
       },
     }),
+    getDictionary(),
   ]);
 
   return (
     <div className="flex flex-col gap-10">
-      <NicheHero niche={niche} />
+      <NicheHero niche={niche} t={t} />
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-        <Stat label="Tổng video" value={stats?.total ?? 0} icon={<Film />} />
-        <Stat label="Hoàn thành" value={stats?.done ?? 0} icon={<CheckCheck />} />
-        <Stat label="Đang chạy" value={stats?.working ?? 0} icon={<Loader />} />
-        <Stat label="Chờ duyệt" value={stats?.review ?? 0} icon={<ScrollText />} />
+        <Stat label={t.dashboard.stats.total} value={stats?.total ?? 0} icon={<Film />} />
+        <Stat label={t.dashboard.stats.done} value={stats?.done ?? 0} icon={<CheckCheck />} />
+        <Stat label={t.dashboard.stats.working} value={stats?.working ?? 0} icon={<Loader />} />
+        <Stat label={t.dashboard.stats.review} value={stats?.review ?? 0} icon={<ScrollText />} />
       </div>
 
       <section>
@@ -80,19 +84,19 @@ async function Dashboard({ niche }: { niche: Niche }) {
           aside={
             rows.length > 0 && (
               <LinkButton href="/projects/new" variant="secondary" size="sm">
-                <Plus /> Video mới
+                <Plus /> {t.dashboard.addVideo}
               </LinkButton>
             )
           }
         >
-          Video của ngách
+          {t.dashboard.listTitle}
         </SectionTitle>
 
         {rows.length === 0 ? (
-          <Empty icon={<Clapperboard />} title="Chưa có video nào trong ngách này">
-            <p>Nhập một chủ đề, Muse sẽ viết kịch bản theo đúng cấu hình của ngách.</p>
+          <Empty icon={<Clapperboard />} title={t.dashboard.emptyTitle}>
+            <p>{t.dashboard.emptyBody}</p>
             <LinkButton href="/projects/new" className="mt-5">
-              <Plus /> Tạo video đầu tiên
+              <Plus /> {t.dashboard.firstVideo}
             </LinkButton>
           </Empty>
         ) : (
@@ -142,7 +146,7 @@ async function Dashboard({ niche }: { niche: Niche }) {
                           <UserRound className="size-3.5" /> {p.character.name}
                         </span>
                       )}
-                      <span>{p.createdAt.toLocaleDateString("vi-VN")}</span>
+                      <span>{p.createdAt.toLocaleDateString(t.meta.dateLocale)}</span>
                     </div>
                   </div>
                 </Link>
@@ -155,7 +159,7 @@ async function Dashboard({ niche }: { niche: Niche }) {
   );
 }
 
-function NicheHero({ niche }: { niche: Niche }) {
+function NicheHero({ niche, t }: { niche: Niche; t: Dictionary }) {
   return (
     <section className="glass gold-ring relative overflow-hidden rounded-[32px] p-6 md:p-10">
       {/* Warm light pooling from the top-left corner, behind the glass. */}
@@ -164,7 +168,7 @@ function NicheHero({ niche }: { niche: Niche }) {
       <Planet />
 
       <div className="relative flex flex-col gap-5">
-        <Eyebrow>Ngách đang dùng</Eyebrow>
+        <Eyebrow>{t.dashboard.activeNiche}</Eyebrow>
         <div className="flex items-center gap-4">
           <span className="flex size-16 items-center justify-center rounded-2xl frost shadow-[inset_0_0_0_1px_rgb(214_183_131/0.3),0_0_40px_-10px_rgb(214_183_131/0.45)] text-4xl">
             {niche.icon}
@@ -177,10 +181,10 @@ function NicheHero({ niche }: { niche: Niche }) {
 
         <div className="flex flex-wrap gap-2">
           <Chip icon={<Clock />}>
-            {niche.sceneCount} cảnh × {niche.sceneSeconds}s ≈ {niche.sceneCount * niche.sceneSeconds}s
+            {t.dashboard.duration(niche.sceneCount, niche.sceneSeconds)}
           </Chip>
           <Chip icon={niche.defaultAspectRatio === "9:16" ? <Smartphone /> : <Monitor />}>
-            Mặc định {niche.defaultAspectRatio}
+            {t.dashboard.defaultFormat(niche.defaultAspectRatio)}
           </Chip>
           <Chip icon={<Languages />}>{niche.language}</Chip>
           {niche.visualStyle && (
@@ -192,10 +196,10 @@ function NicheHero({ niche }: { niche: Niche }) {
 
         <div className="flex flex-wrap gap-3 pt-1">
           <LinkButton href="/projects/new" size="lg">
-            <Plus /> Tạo video mới
+            <Plus /> {t.dashboard.newVideo}
           </LinkButton>
           <LinkButton href={`/niches/${niche.id}`} variant="secondary" size="lg">
-            <Settings2 /> Cấu hình ngách
+            <Settings2 /> {t.dashboard.nicheSettings}
           </LinkButton>
         </div>
       </div>

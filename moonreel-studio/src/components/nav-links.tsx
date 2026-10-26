@@ -4,12 +4,19 @@ import { Compass, LayoutDashboard, Plus, Users } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Suspense } from "react";
+import { useI18n } from "@/i18n/client";
+import type { Dictionary } from "@/i18n/dictionaries";
 
-const items = [
-  { href: "/", label: "Tổng quan", icon: LayoutDashboard, match: (p: string) => p === "/" || (p.startsWith("/projects/") && p !== "/projects/new") },
-  { href: "/projects/new", label: "Tạo video", icon: Plus, match: (p: string) => p === "/projects/new" },
-  { href: "/characters", label: "Nhân vật", icon: Users, match: (p: string) => p.startsWith("/characters") },
-  { href: "/niches", label: "Ngách", icon: Compass, match: (p: string) => p.startsWith("/niches") },
+const items: {
+  href: string;
+  label: keyof Dictionary["nav"];
+  icon: typeof Compass;
+  match: (p: string) => boolean;
+}[] = [
+  { href: "/", label: "overview", icon: LayoutDashboard, match: (p: string) => p === "/" || (p.startsWith("/projects/") && p !== "/projects/new") },
+  { href: "/projects/new", label: "newVideo", icon: Plus, match: (p: string) => p === "/projects/new" },
+  { href: "/characters", label: "characters", icon: Users, match: (p: string) => p.startsWith("/characters") },
+  { href: "/niches", label: "niches", icon: Compass, match: (p: string) => p.startsWith("/niches") },
 ];
 
 type Orientation = "vertical" | "horizontal";
@@ -29,6 +36,7 @@ function ActiveNav({ orientation }: { orientation: Orientation }) {
 }
 
 function NavList({ pathname, orientation }: { pathname: string | null; orientation: Orientation }) {
+  const { t } = useI18n();
   const vertical = orientation === "vertical";
 
   return (
@@ -50,7 +58,7 @@ function NavList({ pathname, orientation }: { pathname: string | null; orientati
               <span className="bg-gold absolute top-1/2 left-0 h-5 w-[3px] -translate-y-1/2 rounded-r-full" />
             )}
             <Icon className={`size-[18px] ${active ? "text-gold" : "text-subtle group-hover:text-muted"}`} />
-            {label}
+            {t.nav[label]}
           </Link>
         );
       })}

@@ -26,6 +26,16 @@ interface TaskResponse {
 
 export class MuseError extends Error {}
 
+/** Muse replied with text ("sorry, I couldn't make this") instead of media; retrying the same prompt rarely helps. */
+export class MuseRefusedError extends MuseError {
+  constructor(readonly reply: string) {
+    super(`Muse declined to generate media: ${reply}`);
+  }
+}
+
+// muse2api reports a text-only answer as "模型未生成媒体，仅返回文本: <reply>" ("no media, text only").
+const TEXT_ONLY_MARKER = "仅返回文本";
+
 /**
  * Talks to a self-hosted muse2api instance (https://github.com/bynne2602/muse2api),
  * which drives the muse.ai web app with your own account cookies.
@@ -102,6 +112,10 @@ export class Muse2ApiProvider implements GenerationProvider {
       const task = await this.request<TaskResponse>("GET", pathname);
       if (task.status === "completed") return task;
       if (task.status === "failed") {
+        const reason = task.error ?? "";
+        if (reason.includes(TEXT_ONLY_MARKER)) {
+          throw new MuseRefusedError(reason.slice(reason.indexOf(TEXT_ONLY_MARKER) + TEXT_ONLY_MARKER.length).replace(/^[\s:：]+/, ""));
+        }
         throw new MuseError(`Muse generation failed: ${task.error ?? "unknown error"}`);
       }
       await sleep(POLL_INTERVAL_MS);

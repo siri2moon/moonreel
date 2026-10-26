@@ -7,10 +7,14 @@ import { createProject } from "@/app/actions";
 import { db } from "@/db";
 import { characters } from "@/db/schema";
 import { Button, Card, Chip, Empty, Eyebrow, inputClass, LinkButton, Loading, PageHeader } from "@/components/ui";
+import type { Dictionary } from "@/i18n/dictionaries";
+import { getDictionary } from "@/i18n/server";
 import { getActiveNiche } from "@/lib/active-niche";
 import { fileUrl } from "@/lib/storage";
 
-export const metadata: Metadata = { title: "Tạo video" };
+export async function generateMetadata(): Promise<Metadata> {
+  return { title: (await getDictionary()).newProject.metaTitle };
+}
 
 export default function NewProjectPage() {
   return (
@@ -20,10 +24,11 @@ export default function NewProjectPage() {
   );
 }
 
-const FORMATS = [
-  { value: "9:16", title: "Dọc 9:16", sub: "TikTok · Reels · Shorts", Icon: Smartphone, frame: "h-12 w-7" },
-  { value: "16:9", title: "Ngang 16:9", sub: "YouTube", Icon: Monitor, frame: "h-7 w-12" },
-] as const;
+const formats = (t: Dictionary) =>
+  [
+    { value: "9:16", title: t.common.vertical, sub: t.common.verticalSub, Icon: Smartphone, frame: "h-12 w-7" },
+    { value: "16:9", title: t.common.horizontal, sub: t.common.horizontalSub, Icon: Monitor, frame: "h-7 w-12" },
+  ] as const;
 
 function Step({ n, title, children }: { n: number; title: string; children: ReactNode }) {
   return (
@@ -40,13 +45,14 @@ function Step({ n, title, children }: { n: number; title: string; children: Reac
 }
 
 async function NewProject() {
-  const niche = await getActiveNiche();
+  const [niche, t] = await Promise.all([getActiveNiche(), getDictionary()]);
+  const p = t.newProject;
   if (!niche) {
     return (
-      <Empty icon={<Compass />} title="Chọn ngách trước đã">
-        <p>Video mới luôn thuộc ngách đang dùng.</p>
+      <Empty icon={<Compass />} title={p.pickNicheTitle}>
+        <p>{p.pickNicheBody}</p>
         <LinkButton href="/niches" className="mt-5">
-          Chọn ngách
+          {p.pickNiche}
         </LinkButton>
       </Empty>
     );
@@ -64,17 +70,19 @@ async function NewProject() {
         eyebrow={`${niche.icon} ${niche.name}`}
         title={
           <>
-            Tạo <span className="text-gold">video mới</span>
+            {p.title.pre}
+            <span className="text-gold">{p.title.accent}</span>
+            {p.title.post}
           </>
         }
-        description="Nhập chủ đề, Muse viết kịch bản theo cấu hình ngách. Bạn sửa và duyệt trước khi sản xuất."
+        description={p.description}
       />
 
       <form action={createProject} className="grid gap-6 lg:grid-cols-[1fr_320px]">
         <input type="hidden" name="nicheId" value={niche.id} />
 
         <Card className="flex flex-col gap-10 p-6 md:p-8">
-          <Step n={1} title="Chủ đề video">
+          <Step n={1} title={p.stepTopic}>
             <textarea
               name="topic"
               required
@@ -82,14 +90,14 @@ async function NewProject() {
               rows={4}
               autoFocus
               className={`${inputClass} text-base leading-relaxed`}
-              placeholder="VD: 3 sai lầm khi dùng thẻ tín dụng khiến người trẻ mất tiền oan"
+              placeholder={p.topicPlaceholder}
             />
-            <p className="text-xs text-subtle">Càng cụ thể (con số, đối tượng, tình huống), kịch bản càng sát ý.</p>
+            <p className="text-xs text-subtle">{p.topicHint}</p>
           </Step>
 
-          <Step n={2} title="Định dạng">
+          <Step n={2} title={p.stepFormat}>
             <div className="grid grid-cols-2 gap-3">
-              {FORMATS.map(({ value, title, sub, frame }) => (
+              {formats(t).map(({ value, title, sub, frame }) => (
                 <label
                   key={value}
                   className="group flex cursor-pointer items-center gap-4 rounded-2xl frost p-4 transition hover:bg-[rgb(255_240_214/0.07)] has-checked:shadow-[inset_0_0_0_1px_rgb(214_183_131/0.6),0_0_30px_-10px_rgb(214_183_131/0.6)] has-checked:bg-gold/[0.07] has-checked:shadow-[0_0_30px_-10px_rgb(214_183_131/0.5)]"
@@ -115,9 +123,9 @@ async function NewProject() {
             </div>
           </Step>
 
-          <Step n={3} title="Nhân vật xuyên suốt">
+          <Step n={3} title={p.stepCharacter}>
             <div className="grid grid-cols-3 gap-3 sm:grid-cols-4 md:grid-cols-5">
-              <CharacterOption value="" checked={defaultCharacter === ""} name="Không dùng">
+              <CharacterOption value="" checked={defaultCharacter === ""} name={p.noCharacter}>
                 <UserRoundX className="size-7 text-subtle" />
               </CharacterOption>
               {characterRows.map((c) => {
@@ -128,7 +136,7 @@ async function NewProject() {
                     value={c.id}
                     checked={defaultCharacter === c.id}
                     name={c.name}
-                    warn={c.referenceStatus !== "ready"}
+                    warn={c.referenceStatus !== "ready" ? { title: p.noReference, short: p.noReferenceShort } : undefined}
                   >
                     {img ? (
                       // eslint-disable-next-line @next/next/no-img-element
@@ -141,9 +149,9 @@ async function NewProject() {
               })}
             </div>
             <p className="text-xs text-subtle">
-              Nhân vật có ảnh tham chiếu giữ gương mặt nhất quán qua mọi cảnh.{" "}
+              {p.characterHint}{" "}
               <Link href="/characters/new" className="text-gold-light hover:underline">
-                Tạo nhân vật mới
+                {p.newCharacter}
               </Link>
             </p>
           </Step>
@@ -151,13 +159,13 @@ async function NewProject() {
 
         <aside className="flex flex-col gap-4 lg:sticky lg:top-8 lg:self-start">
           <Card className="gold-ring flex flex-col gap-4 p-5">
-            <Eyebrow>Cấu hình ngách</Eyebrow>
+            <Eyebrow>{p.nicheSettings}</Eyebrow>
             <div className="flex items-center gap-3">
               <span className="text-3xl">{niche.icon}</span>
               <div>
                 <div className="font-semibold">{niche.name}</div>
                 <Link href={`/niches/${niche.id}`} className="text-xs text-gold-light hover:underline">
-                  Chỉnh cấu hình
+                  {p.editSettings}
                 </Link>
               </div>
             </div>
@@ -169,7 +177,7 @@ async function NewProject() {
             </div>
             {niche.tone && (
               <p className="text-xs leading-relaxed text-muted">
-                <span className="text-subtle">Giọng văn: </span>
+                <span className="text-subtle">{p.tone}</span>
                 {niche.tone}
               </p>
             )}
@@ -183,21 +191,21 @@ async function NewProject() {
 
           <Card className="flex flex-col gap-3 p-5 text-xs text-muted">
             <div className="flex justify-between">
-              <span>Viết kịch bản</span>
-              <span className="text-foreground">1–3 phút</span>
+              <span>{p.scripting}</span>
+              <span className="text-foreground">{p.scriptingTime}</span>
             </div>
             <div className="flex justify-between">
-              <span>Sản xuất {niche.sceneCount} cảnh</span>
-              <span className="text-foreground">~{sceneMinutes} phút</span>
+              <span>{p.production(niche.sceneCount)}</span>
+              <span className="text-foreground">{p.productionTime(sceneMinutes)}</span>
             </div>
             <div className="flex justify-between">
-              <span>Độ dài thành phẩm</span>
+              <span>{p.length}</span>
               <span className="text-foreground">~{niche.sceneCount * niche.sceneSeconds}s</span>
             </div>
           </Card>
 
           <Button type="submit" size="lg" className="w-full">
-            <WandSparkles /> Viết kịch bản với Muse
+            <WandSparkles /> {p.submit}
           </Button>
         </aside>
       </form>
@@ -215,18 +223,18 @@ function CharacterOption({
   value: string;
   checked: boolean;
   name: string;
-  warn?: boolean;
+  warn?: { title: string; short: string };
   children: ReactNode;
 }) {
   return (
-    <label className="group flex cursor-pointer flex-col gap-2" title={warn ? "Chưa có ảnh tham chiếu" : name}>
+    <label className="group flex cursor-pointer flex-col gap-2" title={warn ? warn.title : name}>
       <input type="radio" name="characterId" value={value} defaultChecked={checked} className="sr-only" />
       <span className="flex aspect-square items-center justify-center overflow-hidden rounded-2xl frost transition group-hover:bg-[rgb(255_240_214/0.07)] group-has-checked:shadow-[inset_0_0_0_1px_rgb(214_183_131/0.6),0_0_30px_-10px_rgb(214_183_131/0.6)] group-has-checked:shadow-[0_0_24px_-6px_rgb(214_183_131/0.7)]">
         {children}
       </span>
       <span className="truncate text-center text-xs text-muted group-has-checked:text-gold-light">
         {name}
-        {warn && <span className="block text-[10px] text-warning/80">chưa có ảnh</span>}
+        {warn && <span className="block text-[10px] text-warning/80">{warn.short}</span>}
       </span>
     </label>
   );

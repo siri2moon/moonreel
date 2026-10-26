@@ -2,13 +2,15 @@
 
 import { CircleAlert, RotateCcw } from "lucide-react";
 import { Button, Empty } from "@/components/ui";
+import { useI18n } from "@/i18n/client";
 
 export default function ErrorPage({ error, reset }: { error: Error & { digest?: string }; reset: () => void }) {
+  const { t } = useI18n();
   return (
-    <Empty icon={<CircleAlert />} title="Có lỗi xảy ra">
+    <Empty icon={<CircleAlert />} title={t.errors.title}>
       <p className="text-danger">{error.message}</p>
       <Button className="mt-5" onClick={reset}>
-        <RotateCcw /> Thử lại
+        <RotateCcw /> {t.errors.retry}
       </Button>
     </Empty>
   );

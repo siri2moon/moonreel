@@ -7,8 +7,12 @@ import { Wordmark } from "@/components/logo";
 import { NavLinks } from "@/components/nav-links";
 import { NicheSwitcher } from "@/components/niche-switcher";
 import { Sky } from "@/components/sky";
+import { LanguageSwitcher } from "@/components/language-switcher";
 import { Skeleton } from "@/components/ui";
-import "./globals.css";
+import { LOCALES } from "@/i18n/config";
+import { LocaleProvider } from "@/i18n/client";
+import { getDictionary, getLocale } from "@/i18n/server";
+import "../globals.css";
 
 const body = Be_Vietnam_Pro({
   variable: "--font-body",
@@ -21,15 +25,24 @@ const mono = Geist_Mono({
   subsets: ["latin"],
 });
 
-export const metadata: Metadata = {
-  title: { default: "MoonReel", template: "%s · MoonReel" },
-  description: "Studio sản xuất video AI cho TikTok, Reels, Shorts và YouTube — by siri2moon",
-};
+export function generateStaticParams() {
+  return LOCALES.map((lang) => ({ lang }));
+}
 
-export default function RootLayout({ children }: LayoutProps<"/">) {
+export async function generateMetadata(): Promise<Metadata> {
+  const t = await getDictionary();
+  return {
+    title: { default: "MoonReel", template: "%s · MoonReel" },
+    description: t.meta.description,
+  };
+}
+
+export default async function RootLayout({ children }: LayoutProps<"/[lang]">) {
+  const [locale, t] = await Promise.all([getLocale(), getDictionary()]);
   return (
-    <html lang="vi" className={`${body.variable} ${mono.variable} h-full antialiased`}>
+    <html lang={locale} className={`${body.variable} ${mono.variable} h-full antialiased`}>
       <body className="min-h-full font-sans">
+        <LocaleProvider locale={locale}>
         <Sky />
         <aside className="fixed inset-y-3 left-3 z-20 hidden w-[17rem] flex-col gap-6 rounded-[28px] bg-[linear-gradient(180deg,rgb(255_240_214/0.06),rgb(255_240_214/0.015))] px-4 py-6 shadow-[inset_0_1px_0_rgb(255_246_226/0.1),inset_0_0_0_1px_rgb(255_232_196/0.08),0_30px_80px_-30px_rgb(0_0_0/0.9)] backdrop-blur-2xl lg:flex">
           <Link href="/" className="px-2">
@@ -41,7 +54,10 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
           <NavLinks />
           <div className="mt-auto flex flex-col gap-3">
             <HealthBadge />
-            <p className="px-1 text-[11px] text-subtle">Powered by Meta Muse</p>
+            <div className="flex items-center justify-between gap-2 px-1">
+              <p className="text-[11px] text-subtle">{t.sidebar.poweredBy}</p>
+              <LanguageSwitcher />
+            </div>
           </div>
         </aside>
 
@@ -50,9 +66,12 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
             <Link href="/">
               <Wordmark />
             </Link>
-            <Suspense fallback={null}>
-              <NicheSwitcher compact />
-            </Suspense>
+            <div className="flex items-center gap-2">
+              <Suspense fallback={null}>
+                <NicheSwitcher compact />
+              </Suspense>
+              <LanguageSwitcher />
+            </div>
           </div>
           <div className="px-3 pb-2">
             <NavLinks orientation="horizontal" />
@@ -62,6 +81,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
         <div className="lg:pl-[18.75rem]">
           <main className="mx-auto w-full max-w-6xl px-4 py-8 md:px-8 md:py-10">{children}</main>
         </div>
+        </LocaleProvider>
       </body>
     </html>
   );

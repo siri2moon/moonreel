@@ -2,6 +2,8 @@ import { asc, eq, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { characters, projects, scenes, type Character } from "@/db/schema";
 import { getProvider } from "@/lib/providers";
+import { MuseRefusedError } from "@/lib/providers/muse2api";
+import { REFUSED_PREFIX } from "@/lib/scene-errors";
 import { enqueueRender } from "@/lib/queue";
 import { resolveKey, saveFile, toDataUrl } from "@/lib/storage";
 import {
@@ -161,7 +163,10 @@ export async function produceScene(sceneId: string) {
   } catch (err) {
     await db
       .update(scenes)
-      .set({ status: "failed", error: message(err) })
+      .set({
+        status: "failed",
+        error: err instanceof MuseRefusedError ? `${REFUSED_PREFIX}${err.reply}` : message(err),
+      })
       .where(eq(scenes.id, sceneId));
     return;
   }

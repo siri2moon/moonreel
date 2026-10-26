@@ -112,6 +112,7 @@ muse2api scrapes the chat answer from the DOM while it streams, so a reply can c
 | muse2api drives one Chromium and is effectively serial | `scene-produce` runs `MUSE_CONCURRENCY` (default 1) jobs at a time |
 | 1–3 min per clip; a 6-scene video ≈ 10–20 min | The UI polls progress every 3 s |
 | Muse fails or times out occasionally | One in-process retry plus one pg-boss retry; per-scene "Retry" buttons |
+| Muse declines a scene (text reply instead of media, usually a content filter) | Stored as a refusal and explained in the UI; **Edit** on the scene card rewrites narration / visuals / camera and requeues it, optionally with a new keyframe |
 | A job is redelivered after a worker restart | `produceScene` skips scenes that are already `done` |
 | muse.ai cookies expire | muse2api refreshes them; on 401, sign in again on the muse2api admin page |
 | Homebrew FFmpeg has no libass | Captions ship as `.srt` + soft subtitles; burn-in is a later phase |
@@ -121,11 +122,23 @@ muse2api scrapes the chat answer from the DOM while it streams, so a reply can c
 - muse2api is an **unofficial** tool that automates a browser session with your cookies. A Meta UI change can break it, and automating a consumer account may violate the terms of service: **use a secondary muse.ai account** while testing.
 - Every Muse call goes through `src/lib/providers/`. When Meta ships an official video API, or the project moves to the MCP-connector approach, only a new provider is needed.
 
-## 6. Design language
+## 6. Languages
+
+The UI ships in English and Vietnamese. URLs carry no locale prefix: `src/proxy.ts` picks the locale and rewrites every page request into `app/[lang]/…`.
+
+1. The `moonreel_locale` cookie, set by the EN / VI switch in the sidebar.
+2. Otherwise the best match in the browser's `Accept-Language` header (quality values respected).
+3. Otherwise English.
+
+Copy lives in `src/i18n/dictionaries/{en,vi}.ts`; `en.ts` is the source of truth and its type forces `vi.ts` to provide every key. Server Components read the locale with `next/root-params` (`getDictionary()` in `src/i18n/server.ts`), Client Components with `useI18n()`, and Server Actions negotiate it from the request like the proxy does (`src/i18n/action.ts`). Because `[lang]` has `generateStaticParams`, both locales are part of the prerendered shell.
+
+The UI language is independent of a niche's **narration language**, which controls what Muse writes.
+
+## 7. Design language
 
 "Frosted champagne glass at midnight": a near-black canvas with a spotlight from above, a faint grid and twinkling stars; surfaces are translucent glass plates lit from behind (inset hairline highlights instead of hard borders); warm cream type; champagne gold used sparingly, with the metallic gradient reserved for the brand, primary actions and active states. Tokens and utilities (`glass`, `frost`, `gold-ring`, `text-luminous`, `sheen`…) live in `src/app/globals.css`; shared components in `src/components/ui.tsx`.
 
-## 7. Roadmap after the MVP
+## 8. Roadmap after the MVP
 
 1. Second provider (Kling / Seedance via fal.ai) behind the existing `GenerationProvider` interface.
 2. Burned-in captions, background music and effects (Remotion).

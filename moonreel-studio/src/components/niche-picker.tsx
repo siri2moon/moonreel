@@ -4,12 +4,13 @@ import Link from "next/link";
 import { selectNiche } from "@/app/actions";
 import { db } from "@/db";
 import { niches, projects } from "@/db/schema";
+import { getDictionary } from "@/i18n/server";
 import { getActiveNiche } from "@/lib/active-niche";
 import { Button, Chip, Empty, Eyebrow, LinkButton } from "./ui";
 
 export async function NichePicker({ welcome = false }: { welcome?: boolean }) {
   // One grouped query gives every niche with its video count.
-  const [rows, active] = await Promise.all([
+  const [rows, active, t] = await Promise.all([
     db
       .select({ ...getTableColumns(niches), videos: count(projects.id) })
       .from(niches)
@@ -17,34 +18,33 @@ export async function NichePicker({ welcome = false }: { welcome?: boolean }) {
       .groupBy(niches.id)
       .orderBy(asc(niches.name)),
     getActiveNiche(),
+    getDictionary(),
   ]);
+  const heading = welcome ? t.picker.titleWelcome : t.picker.title;
 
   return (
     <div className="flex flex-col gap-10">
       <header className="relative flex flex-col items-center gap-4 pt-4 text-center md:pt-10">
-        <Eyebrow>{welcome ? "Bước 1 · Bắt đầu" : "Không gian làm việc"}</Eyebrow>
+        <Eyebrow>{welcome ? t.picker.eyebrowWelcome : t.picker.eyebrow}</Eyebrow>
         <h1 className="max-w-3xl text-4xl font-extrabold tracking-tight md:text-5xl">
-          {welcome ? (
-            <>
-              Chọn <span className="text-gold">ngách</span> cho kênh của bạn
-            </>
-          ) : (
-            <>
-              Đổi <span className="text-gold">ngách</span>
-            </>
-          )}
+          {heading.pre}
+          <span className="text-gold">{heading.accent}</span>
+          {heading.post}
         </h1>
         <p className="max-w-2xl text-sm leading-relaxed text-muted md:text-base">
-          Mỗi ngách có hướng dẫn kịch bản, giọng văn, phong cách hình ảnh và cấu hình sản xuất riêng.
-          Ngách bạn chọn sẽ được dùng xuyên suốt cho mọi video, cho tới khi bạn đổi sang ngách khác.
+          {t.picker.intro}
         </p>
       </header>
 
       {rows.length === 0 ? (
-        <Empty icon={<Clapperboard />} title="Chưa có ngách nào">
-          <p>Tạo ngách đầu tiên, hoặc chạy <code className="text-gold-light">pnpm db:seed</code> để có 4 ngách mẫu.</p>
+        <Empty icon={<Clapperboard />} title={t.picker.emptyTitle}>
+          <p>
+            {t.picker.emptyBefore}
+            <code className="text-gold-light">pnpm db:seed</code>
+            {t.picker.emptyAfter}
+          </p>
           <LinkButton href="/niches/new" className="mt-4">
-            <Plus /> Tạo ngách
+            <Plus /> {t.picker.create}
           </LinkButton>
         </Empty>
       ) : (
@@ -67,12 +67,12 @@ export async function NichePicker({ welcome = false }: { welcome?: boolean }) {
                   <div className="flex items-center gap-1">
                     {isActive && (
                       <span className="flex items-center gap-1 rounded-full bg-gold/15 px-2.5 py-1 text-[11px] font-semibold text-gold-light">
-                        <Check className="size-3" /> Đang dùng
+                        <Check className="size-3" /> {t.picker.inUse}
                       </span>
                     )}
                     <Link
                       href={`/niches/${n.id}`}
-                      title="Cấu hình ngách"
+                      title={t.picker.settings}
                       className="flex size-8 items-center justify-center rounded-lg text-subtle transition hover:bg-[rgb(255_240_214/0.06)] hover:text-gold-light"
                     >
                       <Settings2 className="size-4" />
@@ -100,10 +100,10 @@ export async function NichePicker({ welcome = false }: { welcome?: boolean }) {
                 )}
 
                 <div className="mt-6 flex items-center justify-between gap-3 pt-2">
-                  <span className="text-xs text-subtle">{n.videos} video</span>
+                  <span className="text-xs text-subtle">{t.picker.videos(n.videos)}</span>
                   <form action={selectNiche.bind(null, n.id)}>
                     <Button type="submit" variant={isActive ? "secondary" : "primary"} size="md">
-                      {isActive ? "Vào làm việc" : "Dùng ngách này"}
+                      {isActive ? t.picker.enter : t.picker.use}
                     </Button>
                   </form>
                 </div>
@@ -118,10 +118,8 @@ export async function NichePicker({ welcome = false }: { welcome?: boolean }) {
             <span className="flex size-12 items-center justify-center rounded-2xl frost">
               <Plus className="size-5" />
             </span>
-            <span className="font-semibold">Tạo ngách mới</span>
-            <span className="max-w-60 text-xs text-subtle">
-              Tự viết hướng dẫn kịch bản, giọng văn và phong cách hình ảnh cho kênh của bạn.
-            </span>
+            <span className="font-semibold">{t.picker.newTitle}</span>
+            <span className="max-w-60 text-xs text-subtle">{t.picker.newBody}</span>
           </Link>
         </div>
       )}

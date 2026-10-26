@@ -1,10 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useI18n } from "@/i18n/client";
 
 type Health = { ok: boolean; muse?: { accounts: number }; error?: string };
 
 export function HealthBadge() {
+  const { t } = useI18n();
   const [health, setHealth] = useState<Health | null>(null);
 
   useEffect(() => {
@@ -23,8 +25,8 @@ export function HealthBadge() {
   }, []);
 
   const tone = !health ? "bg-subtle" : health.ok ? "bg-success" : "bg-danger";
-  const label = !health ? "Đang kiểm tra…" : health.ok ? "Muse đã kết nối" : "Muse chưa kết nối";
-  const detail = health?.ok ? `${health.muse?.accounts ?? 0} tài khoản` : health?.error;
+  const label = !health ? t.health.checking : health.ok ? t.health.connected : t.health.disconnected;
+  const detail = health?.ok ? t.health.accounts(health.muse?.accounts ?? 0) : health?.error;
 
   return (
     <div

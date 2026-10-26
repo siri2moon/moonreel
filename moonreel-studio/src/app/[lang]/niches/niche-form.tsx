@@ -5,6 +5,7 @@ import { useState, useTransition, type ReactNode } from "react";
 import { deleteNiche, saveNiche } from "@/app/actions";
 import type { Niche } from "@/db/schema";
 import { Button, Card, ErrorNote, Field, inputClass } from "@/components/ui";
+import { useI18n } from "@/i18n/client";
 
 const ICONS = ["💰", "🔭", "🌙", "🤖", "😂", "🍜", "💪", "✈️", "📚", "🎮", "💄", "🐾", "🧠", "⚽", "🎵", "✦"];
 
@@ -39,6 +40,8 @@ function Section({
 }
 
 export function NicheForm({ niche, characters }: { niche?: Niche; characters: CharacterOption[] }) {
+  const { t } = useI18n();
+  const f = t.nicheForm;
   const [icon, setIcon] = useState(niche?.icon ?? "✦");
   const [deleting, startDelete] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -46,7 +49,7 @@ export function NicheForm({ niche, characters }: { niche?: Niche; characters: Ch
   const icons = ICONS.includes(icon) ? ICONS : [icon, ...ICONS];
 
   const onDelete = () => {
-    if (!niche || !confirm(`Xoá ngách "${niche.name}"?`)) return;
+    if (!niche || !confirm(f.confirmDelete(niche.name))) return;
     startDelete(async () => {
       setError(null);
       try {
@@ -61,8 +64,8 @@ export function NicheForm({ niche, characters }: { niche?: Niche; characters: Ch
     <form action={save} className="flex flex-col gap-5">
       {error && <ErrorNote>{error}</ErrorNote>}
 
-      <Section icon={<Sparkles />} title="Nhận diện" description="Tên và biểu tượng hiển thị khắp app.">
-        <Field label="Biểu tượng">
+      <Section icon={<Sparkles />} title={f.identity} description={f.identityHint}>
+        <Field label={f.icon}>
           <input type="hidden" name="icon" value={icon} />
           <div className="flex flex-wrap gap-2">
             {icons.map((emoji) => (
@@ -82,57 +85,57 @@ export function NicheForm({ niche, characters }: { niche?: Niche; characters: Ch
           </div>
         </Field>
         <div className="grid gap-5 md:grid-cols-2">
-          <Field label="Tên ngách">
-            <input name="name" required defaultValue={niche?.name} className={inputClass} placeholder="Hài hước & Cà khịa" />
+          <Field label={f.name}>
+            <input name="name" required defaultValue={niche?.name} className={inputClass} placeholder={f.namePlaceholder} />
           </Field>
-          <Field label="Slug" hint="Định danh duy nhất: chữ thường, số, gạch ngang">
+          <Field label="Slug" hint={f.slugHint}>
             <input
               name="slug"
               required
               defaultValue={niche?.slug}
               className={`${inputClass} font-mono`}
               pattern="[a-z0-9-]+"
-              placeholder="hai-huoc"
+              placeholder={f.slugPlaceholder}
             />
           </Field>
         </div>
-        <Field label="Mô tả ngắn">
+        <Field label={f.description}>
           <input
             name="description"
             defaultValue={niche?.description}
             className={inputClass}
-            placeholder="Kênh nói về điều gì, cho ai xem"
+            placeholder={f.descriptionPlaceholder}
           />
         </Field>
       </Section>
 
       <Section
         icon={<ScrollText />}
-        title="Kịch bản AI"
-        description="Muse tuân theo các hướng dẫn này cho mọi video trong ngách."
+        title={f.script}
+        description={f.scriptHint}
       >
-        <Field label="Hướng dẫn viết kịch bản" hint="Cấu trúc, cách mở đầu (hook), điều cấm, lời kêu gọi cuối video…">
+        <Field label={f.instructions} hint={f.instructionsHint}>
           <textarea
             name="scriptInstructions"
             required
             rows={8}
             defaultValue={niche?.scriptInstructions}
             className={`${inputClass} text-[13px] leading-relaxed`}
-            placeholder={"- Mở đầu bằng một câu gây tò mò\n- Mỗi cảnh một ý\n- Kết thúc kêu gọi follow"}
+            placeholder={f.instructionsPlaceholder}
           />
         </Field>
         <div className="grid gap-5 md:grid-cols-2">
-          <Field label="Giọng văn">
-            <input name="tone" defaultValue={niche?.tone} className={inputClass} placeholder="Hài hước, châm biếm nhẹ" />
+          <Field label={f.tone}>
+            <input name="tone" defaultValue={niche?.tone} className={inputClass} placeholder={f.tonePlaceholder} />
           </Field>
-          <Field label="Ngôn ngữ lời thoại">
+          <Field label={f.language}>
             <input name="language" required defaultValue={niche?.language ?? "Vietnamese"} className={inputClass} />
           </Field>
         </div>
       </Section>
 
-      <Section icon={<Palette />} title="Hình ảnh" description="Phong cách áp lên mọi cảnh, viết bằng tiếng Anh.">
-        <Field label="Phong cách hình ảnh" hint="Ví dụ: clean modern 3D animation, soft warm lighting, pastel colors">
+      <Section icon={<Palette />} title={f.visuals} description={f.visualsHint}>
+        <Field label={f.visualStyle} hint={f.visualStyleHint}>
           <textarea
             name="visualStyle"
             rows={2}
@@ -140,9 +143,9 @@ export function NicheForm({ niche, characters }: { niche?: Niche; characters: Ch
             className={inputClass}
           />
         </Field>
-        <Field label="Nhân vật mặc định" hint="Được chọn sẵn khi tạo video mới trong ngách này.">
+        <Field label={f.defaultCharacter} hint={f.defaultCharacterHint}>
           <select name="defaultCharacterId" defaultValue={niche?.defaultCharacterId ?? ""} className={inputClass}>
-            <option value="">— Không có —</option>
+            <option value="">{t.common.none}</option>
             {characters.map((c) => (
               <option key={c.id} value={c.id}>
                 {c.name}
@@ -152,13 +155,13 @@ export function NicheForm({ niche, characters }: { niche?: Niche; characters: Ch
         </Field>
       </Section>
 
-      <Section icon={<Clapperboard />} title="Sản xuất" description="Độ dài và định dạng mặc định của video.">
+      <Section icon={<Clapperboard />} title={f.production} description={f.productionHint}>
         <fieldset className="flex flex-col gap-2">
-          <legend className="mb-2 text-[13px] font-medium">Định dạng mặc định</legend>
+          <legend className="mb-2 text-[13px] font-medium">{f.defaultFormat}</legend>
           <div className="grid grid-cols-2 gap-3">
             {[
-              { value: "9:16", title: "Dọc 9:16", sub: "TikTok · Reels · Shorts", Icon: Smartphone },
-              { value: "16:9", title: "Ngang 16:9", sub: "YouTube", Icon: Monitor },
+              { value: "9:16", title: t.common.vertical, sub: t.common.verticalSub, Icon: Smartphone },
+              { value: "16:9", title: t.common.horizontal, sub: t.common.horizontalSub, Icon: Monitor },
             ].map(({ value, title, sub, Icon }) => (
               <label
                 key={value}
@@ -181,7 +184,7 @@ export function NicheForm({ niche, characters }: { niche?: Niche; characters: Ch
           </div>
         </fieldset>
         <div className="grid gap-5 md:grid-cols-2">
-          <Field label="Số cảnh">
+          <Field label={f.sceneCount}>
             <input
               name="sceneCount"
               type="number"
@@ -192,7 +195,7 @@ export function NicheForm({ niche, characters }: { niche?: Niche; characters: Ch
               className={inputClass}
             />
           </Field>
-          <Field label="Giây mỗi cảnh" hint="Muse tạo clip tối đa khoảng 10 giây">
+          <Field label={f.sceneSeconds} hint={f.sceneSecondsHint}>
             <input
               name="sceneSeconds"
               type="number"
@@ -209,13 +212,13 @@ export function NicheForm({ niche, characters }: { niche?: Niche; characters: Ch
       <div className="glass sticky bottom-4 z-10 flex items-center justify-between gap-3 rounded-2xl p-3">
         {niche ? (
           <Button variant="danger" onClick={onDelete} disabled={deleting}>
-            <Trash /> Xoá ngách
+            <Trash /> {f.delete}
           </Button>
         ) : (
-          <span className="pl-2 text-xs text-subtle">Ngách mới sẽ được chọn làm ngách đang dùng.</span>
+          <span className="pl-2 text-xs text-subtle">{f.newNote}</span>
         )}
         <Button type="submit" size="lg">
-          {niche ? "Lưu cấu hình" : "Tạo ngách"}
+          {niche ? f.save : f.create}
         </Button>
       </div>
     </form>

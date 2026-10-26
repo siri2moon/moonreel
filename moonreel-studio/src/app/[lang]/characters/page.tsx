@@ -5,25 +5,32 @@ import Link from "next/link";
 import { Suspense } from "react";
 import { db } from "@/db";
 import { characters } from "@/db/schema";
-import { Empty, LinkButton, Loading, PageHeader, StatusBadge } from "@/components/ui";
+import { StatusBadge } from "@/components/status-badge";
+import { Empty, LinkButton, Loading, PageHeader } from "@/components/ui";
+import { getDictionary } from "@/i18n/server";
 import { fileUrl } from "@/lib/storage";
 
-export const metadata: Metadata = { title: "Nhân vật" };
+export async function generateMetadata(): Promise<Metadata> {
+  return { title: (await getDictionary()).characters.metaTitle };
+}
 
-export default function CharactersPage() {
+export default async function CharactersPage() {
+  const t = await getDictionary();
   return (
     <>
       <PageHeader
-        eyebrow="Thư viện"
+        eyebrow={t.characters.eyebrow}
         title={
           <>
-            Nhân <span className="text-gold">vật</span>
+            {t.characters.title.pre}
+            <span className="text-gold">{t.characters.title.accent}</span>
+            {t.characters.title.post}
           </>
         }
-        description="Nhân vật là gương mặt của kênh. Ảnh tham chiếu giúp Muse giữ đúng ngoại hình qua mọi cảnh và mọi video."
+        description={t.characters.description}
         actions={
           <LinkButton href="/characters/new">
-            <Plus /> Nhân vật mới
+            <Plus /> {t.characters.new}
           </LinkButton>
         }
       />
@@ -35,13 +42,16 @@ export default function CharactersPage() {
 }
 
 async function CharacterList() {
-  const rows = await db.select().from(characters).orderBy(asc(characters.name));
+  const [rows, t] = await Promise.all([
+    db.select().from(characters).orderBy(asc(characters.name)),
+    getDictionary(),
+  ]);
   if (rows.length === 0) {
     return (
-      <Empty icon={<Users />} title="Chưa có nhân vật">
-        <p>Tạo một nhân vật để mọi video trong kênh có cùng một gương mặt quen thuộc.</p>
+      <Empty icon={<Users />} title={t.characters.emptyTitle}>
+        <p>{t.characters.emptyBody}</p>
         <LinkButton href="/characters/new" className="mt-5">
-          <Plus /> Tạo nhân vật
+          <Plus /> {t.characters.create}
         </LinkButton>
       </Empty>
     );

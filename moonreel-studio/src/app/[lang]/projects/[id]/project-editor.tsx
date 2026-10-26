@@ -11,6 +11,7 @@ import {
   Film,
   Image as ImageIcon,
   Mic,
+  Pencil,
   Plus,
   RotateCcw,
   Save,
@@ -25,13 +26,17 @@ import { useEffect, useRef, useState, useTransition } from "react";
 import {
   approveAndProduce,
   deleteProject,
+  editScene,
   regenerateScript,
   rerender,
   retryScenes,
   saveScript,
   type SceneInput,
 } from "@/app/actions";
-import { Button, buttonClass, Card, ErrorNote, inputClass, StatusBadge } from "@/components/ui";
+import { StatusBadge } from "@/components/status-badge";
+import { Button, buttonClass, Card, ErrorNote, inputClass } from "@/components/ui";
+import { useI18n } from "@/i18n/client";
+import { isRefusal, refusalReply } from "@/lib/scene-errors";
 import type { ProjectView } from "@/lib/views";
 
 const BUSY = new Set(["scripting", "producing", "rendering"]);
@@ -54,6 +59,7 @@ function isEditable(view: ProjectView) {
 }
 
 export function ProjectEditor({ initial }: { initial: ProjectView }) {
+  const { t } = useI18n();
   const [view, setView] = useState(initial);
   const [title, setTitle] = useState(initial.title);
   const [draft, setDraft] = useState(() => toDraft(initial.scenes));
@@ -117,7 +123,7 @@ export function ProjectEditor({ initial }: { initial: ProjectView }) {
             disabled={pending}
             onClick={() => run(() => regenerateScript(view.id), { status: "scripting", error: null })}
           >
-            <RotateCcw /> Viết lại kịch bản
+            <RotateCcw /> {t.project.rewrite}
           </Button>
         </div>
       )}
@@ -149,6 +155,9 @@ export function ProjectEditor({ initial }: { initial: ProjectView }) {
             run(() => retryScenes(view.id, ids, { newKeyframe }), { status: "producing", error: null })
           }
           onRender={() => run(() => rerender(view.id), { status: "rendering", error: null })}
+          onEdit={(sceneId, input, newKeyframe) =>
+            run(() => editScene(view.id, sceneId, input, { newKeyframe }), { status: "producing", error: null })
+          }
         />
       )}
     </div>
@@ -164,6 +173,7 @@ function Header({
   onDelete: () => void;
   pending: boolean;
 }) {
+  const { t } = useI18n();
   return (
     <div className="flex flex-col gap-4">
       <Link href="/" className="flex w-fit items-center gap-1.5 text-xs text-muted transition hover:text-gold-light">
@@ -188,7 +198,7 @@ function Header({
             )}
           </div>
           <p className="max-w-3xl text-sm text-subtle">
-            <span className="text-muted">Chủ đề:</span> {view.topic}
+            <span className="text-muted">{t.project.topic}</span> {view.topic}
           </p>
         </div>
         <Button
@@ -196,9 +206,9 @@ function Header({
           size="sm"
           className="hover:text-danger"
           disabled={pending}
-          onClick={() => confirm("Xoá video này?") && onDelete()}
+          onClick={() => confirm(t.project.confirmDelete) && onDelete()}
         >
-          <Trash /> Xoá
+          <Trash /> {t.project.delete}
         </Button>
       </div>
     </div>
@@ -206,11 +216,11 @@ function Header({
 }
 
 const STEPS = [
-  { key: "script", label: "Kịch bản", Icon: Sparkles },
-  { key: "review", label: "Duyệt", Icon: Check },
-  { key: "produce", label: "Sản xuất", Icon: Clapperboard },
-  { key: "render", label: "Ghép video", Icon: Film },
-  { key: "done", label: "Hoàn thành", Icon: Download },
+  { key: "script", Icon: Sparkles },
+  { key: "review", Icon: Check },
+  { key: "produce", Icon: Clapperboard },
+  { key: "render", Icon: Film },
+  { key: "done", Icon: Download },
 ] as const;
 
 function currentStep(view: ProjectView, editable: boolean) {
@@ -233,11 +243,12 @@ function currentStep(view: ProjectView, editable: boolean) {
 }
 
 function Stepper({ view, editable }: { view: ProjectView; editable: boolean }) {
+  const { t } = useI18n();
   const at = currentStep(view, editable);
   const failed = view.status === "failed";
   return (
     <ol className="glass flex items-center gap-2 overflow-x-auto rounded-2xl p-3">
-      {STEPS.map(({ key, label, Icon }, i) => {
+      {STEPS.map(({ key, Icon }, i) => {
         const done = i < at || view.status === "done";
         const active = i === at && view.status !== "done";
         return (
@@ -258,7 +269,7 @@ function Stepper({ view, editable }: { view: ProjectView; editable: boolean }) {
             <span
               className={`text-xs font-medium whitespace-nowrap ${done || active ? "text-foreground" : "text-subtle"}`}
             >
-              {label}
+              {t.project.steps[key]}
             </span>
             {i < STEPS.length - 1 && (
               <span className={`mx-1 hidden h-px min-w-6 flex-1 md:block ${done ? "bg-gold/60" : "bg-border"}`} />
@@ -271,6 +282,7 @@ function Stepper({ view, editable }: { view: ProjectView; editable: boolean }) {
 }
 
 function Writing() {
+  const { t } = useI18n();
   return (
     <Card className="gold-ring relative flex flex-col items-center gap-5 overflow-hidden px-6 py-16 text-center">
       <div className="pointer-events-none absolute top-1/2 left-1/2 size-72 -translate-x-1/2 -translate-y-1/2 rounded-full bg-gold/10 blur-[80px]" />
@@ -281,8 +293,8 @@ function Writing() {
         </span>
       </span>
       <div className="relative flex flex-col gap-1.5">
-        <h2 className="text-lg font-semibold">Muse đang viết kịch bản…</h2>
-        <p className="text-sm text-muted">Thường mất 1–3 phút. Trang tự cập nhật khi xong, bạn không cần tải lại.</p>
+        <h2 className="text-lg font-semibold">{t.project.writingTitle}</h2>
+        <p className="text-sm text-muted">{t.project.writingBody}</p>
       </div>
     </Card>
   );
@@ -300,6 +312,7 @@ function ScriptEditor(props: {
   onApprove: () => void;
 }) {
   const { title, setTitle, draft, setDraft, sceneSeconds, pending } = props;
+  const { t } = useI18n();
 
   const update = (i: number, patch: Partial<SceneInput>) =>
     setDraft((d) => d.map((s, j) => (j === i ? { ...s, ...patch } : s)));
@@ -318,33 +331,30 @@ function ScriptEditor(props: {
     <div className="flex flex-col gap-5">
       <div className="glass sticky top-[7.5rem] z-10 flex flex-wrap items-center justify-between gap-3 rounded-2xl p-3 pl-5 lg:top-4">
         <div className="text-sm">
-          <span className="font-semibold">Kịch bản</span>
-          <span className="text-muted">
-            {" "}
-            · {draft.length} cảnh · ~{draft.length * sceneSeconds}s
-          </span>
+          <span className="font-semibold">{t.project.script}</span>
+          <span className="text-muted">{t.project.scriptSummary(draft.length, draft.length * sceneSeconds)}</span>
         </div>
         <div className="flex flex-wrap gap-2">
           <Button variant="ghost" size="sm" disabled={pending} onClick={props.onRegenerate}>
-            <RotateCcw /> Viết lại
+            <RotateCcw /> {t.project.regenerate}
           </Button>
           <Button variant="secondary" size="sm" disabled={pending} onClick={props.onSave}>
-            <Save /> Lưu nháp
+            <Save /> {t.project.saveDraft}
           </Button>
           <Button disabled={pending || draft.length === 0} onClick={props.onApprove}>
-            <Check /> Duyệt & sản xuất
+            <Check /> {t.project.approve}
           </Button>
         </div>
       </div>
 
       <Card className="p-5">
         <label className="flex flex-col gap-2">
-          <span className="text-[11px] font-semibold tracking-[0.2em] text-subtle uppercase">Tiêu đề video</span>
+          <span className="text-[11px] font-semibold tracking-[0.2em] text-subtle uppercase">{t.project.videoTitle}</span>
           <input
             value={title}
             onChange={(e) => setTitle(e.target.value)}
             className="bg-transparent text-xl font-bold tracking-tight outline-none placeholder:text-subtle"
-            placeholder="Tiêu đề video"
+            placeholder={t.project.videoTitle}
           />
         </label>
       </Card>
@@ -359,7 +369,7 @@ function ScriptEditor(props: {
                   {String(i + 1).padStart(2, "0")}
                 </span>
                 <div className="mt-1 flex flex-col opacity-60 transition group-hover:opacity-100">
-                  <Button variant="ghost" size="icon" onClick={() => move(i, -1)} disabled={i === 0} title="Lên">
+                  <Button variant="ghost" size="icon" onClick={() => move(i, -1)} disabled={i === 0} title={t.project.up}>
                     <ArrowUp />
                   </Button>
                   <Button
@@ -367,7 +377,7 @@ function ScriptEditor(props: {
                     size="icon"
                     onClick={() => move(i, 1)}
                     disabled={i === draft.length - 1}
-                    title="Xuống"
+                    title={t.project.down}
                   >
                     <ArrowDown />
                   </Button>
@@ -376,7 +386,7 @@ function ScriptEditor(props: {
                     size="icon"
                     className="hover:text-danger"
                     onClick={() => remove(i)}
-                    title="Xoá cảnh"
+                    title={t.project.removeScene}
                   >
                     <X />
                   </Button>
@@ -387,9 +397,9 @@ function ScriptEditor(props: {
                 <label className="flex flex-col gap-2">
                   <span className="flex items-center justify-between text-xs text-muted">
                     <span className="flex items-center gap-1.5">
-                      <Mic className="size-3.5 text-gold/80" /> Lời thoại
+                      <Mic className="size-3.5 text-gold/80" /> {t.project.narration}
                     </span>
-                    <span className={words > 25 ? "text-warning" : "text-subtle"}>{words}/25 từ</span>
+                    <span className={words > 25 ? "text-warning" : "text-subtle"}>{t.project.words(words)}</span>
                   </span>
                   <textarea
                     rows={2}
@@ -401,7 +411,7 @@ function ScriptEditor(props: {
                 <div className="grid gap-4 md:grid-cols-[1fr_220px]">
                   <label className="flex flex-col gap-2">
                     <span className="flex items-center gap-1.5 text-xs text-muted">
-                      <ImageIcon className="size-3.5 text-gold/80" /> Mô tả hình ảnh (tiếng Anh)
+                      <ImageIcon className="size-3.5 text-gold/80" /> {t.project.visual}
                     </span>
                     <textarea
                       rows={3}
@@ -412,7 +422,7 @@ function ScriptEditor(props: {
                   </label>
                   <label className="flex flex-col gap-2">
                     <span className="flex items-center gap-1.5 text-xs text-muted">
-                      <Video className="size-3.5 text-gold/80" /> Camera
+                      <Video className="size-3.5 text-gold/80" /> {t.project.camera}
                     </span>
                     <input
                       value={scene.camera ?? ""}
@@ -432,7 +442,7 @@ function ScriptEditor(props: {
         onClick={add}
         className="flex items-center justify-center gap-2 rounded-2xl border border-dashed border-[rgb(255_232_196/0.16)] py-4 text-sm text-muted transition hover:bg-[rgb(255_240_214/0.07)] hover:bg-gold/[0.03] hover:text-gold-light"
       >
-        <Plus className="size-4" /> Thêm cảnh
+        <Plus className="size-4" /> {t.project.addScene}
       </button>
     </div>
   );
@@ -443,12 +453,16 @@ function Production({
   pending,
   onRetry,
   onRender,
+  onEdit,
 }: {
   view: ProjectView;
   pending: boolean;
   onRetry: (ids: string[], newKeyframe: boolean) => void;
   onRender: () => void;
+  onEdit: (sceneId: string, input: SceneInput, newKeyframe: boolean) => void;
 }) {
+  const [editing, setEditing] = useState<Scene | null>(null);
+  const { t } = useI18n();
   const total = view.scenes.length;
   const done = view.scenes.filter((s) => s.status === "done").length;
   const failed = view.scenes.filter((s) => s.status === "failed");
@@ -471,24 +485,22 @@ function Production({
             />
             <div className="flex flex-col gap-4">
               <span className="flex items-center gap-2 text-[11px] font-semibold tracking-[0.2em] text-gold uppercase">
-                <Sparkles className="size-3.5" /> Thành phẩm
+                <Sparkles className="size-3.5" /> {t.project.final}
               </span>
-              <h2 className="text-2xl font-bold tracking-tight">Video đã sẵn sàng để đăng</h2>
-              <p className="text-sm text-muted">
-                {total} cảnh · {view.aspectRatio} · phụ đề nhúng (bật/tắt trong trình phát) và file .srt riêng.
-              </p>
+              <h2 className="text-2xl font-bold tracking-tight">{t.project.finalTitle}</h2>
+              <p className="text-sm text-muted">{t.project.finalBody(total, view.aspectRatio)}</p>
               <div className="flex flex-wrap gap-2">
                 <a href={`${view.finalVideoUrl}&download`} className={buttonClass("primary", "lg")}>
-                  <Download /> Tải MP4
+                  <Download /> {t.project.downloadMp4}
                 </a>
                 {view.captionsUrl && (
                   <a href={`${view.captionsUrl}&download`} className={buttonClass("secondary", "lg")}>
-                    <Captions /> Phụ đề .srt
+                    <Captions /> {t.project.downloadSrt}
                   </a>
                 )}
               </div>
               <Button variant="ghost" size="sm" disabled={pending} onClick={onRender} className="self-start">
-                <RotateCcw /> Ghép lại
+                <RotateCcw /> {t.project.rerender}
               </Button>
             </div>
           </div>
@@ -498,20 +510,18 @@ function Production({
       <section className="flex flex-col gap-5">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div className="flex flex-col gap-1">
-            <h2 className="text-lg font-semibold tracking-tight">Sản xuất từng cảnh</h2>
-            <span className="text-xs text-muted">
-              {done}/{total} cảnh xong · {percent}%
-            </span>
+            <h2 className="text-lg font-semibold tracking-tight">{t.project.productionTitle}</h2>
+            <span className="text-xs text-muted">{t.project.progress(done, total, percent)}</span>
           </div>
           <div className="flex gap-2">
             {failed.length > 0 && (
               <Button variant="secondary" disabled={pending} onClick={() => onRetry(failed.map((s) => s.id), false)}>
-                <RotateCcw /> Thử lại {failed.length} cảnh lỗi
+                <RotateCcw /> {t.project.retryFailed(failed.length)}
               </Button>
             )}
             {allDone && view.status !== "rendering" && view.status !== "done" && (
               <Button disabled={pending} onClick={onRender}>
-                <Film /> Ghép video
+                <Film /> {t.project.render}
               </Button>
             )}
           </div>
@@ -534,10 +544,20 @@ function Production({
               vertical={vertical}
               pending={pending}
               onRetry={(newKeyframe) => onRetry([scene.id], newKeyframe)}
+              onEdit={() => setEditing(scene)}
             />
           ))}
         </div>
       </section>
+
+      {editing && (
+        <SceneEditDialog
+          scene={editing}
+          pending={pending}
+          onClose={() => setEditing(null)}
+          onSubmit={(input, newKeyframe) => onEdit(editing.id, input, newKeyframe)}
+        />
+      )}
     </div>
   );
 }
@@ -547,12 +567,15 @@ function SceneCard({
   vertical,
   pending,
   onRetry,
+  onEdit,
 }: {
   scene: Scene;
   vertical: boolean;
   pending: boolean;
   onRetry: (newKeyframe: boolean) => void;
+  onEdit: () => void;
 }) {
+  const { t } = useI18n();
   const working = scene.status === "keyframe" || scene.status === "video";
   const canRetry = scene.status === "failed" || scene.status === "done";
 
@@ -575,7 +598,7 @@ function SceneCard({
         ) : (
           <div className="flex size-full flex-col items-center justify-center gap-2 bg-gradient-to-b from-[rgb(255_240_214/0.03)] to-transparent text-xs text-subtle">
             <ImageIcon className="size-6" />
-            Chưa có hình
+            {t.project.noImage}
           </div>
         )}
         <span className="absolute top-2 left-2 rounded-md bg-black/70 px-2 py-0.5 text-[11px] font-bold text-gold-light backdrop-blur">
@@ -584,25 +607,137 @@ function SceneCard({
         {working && (
           <div className="absolute inset-x-0 bottom-0 flex items-center gap-2 bg-gradient-to-t from-black to-black/0 px-3 pt-8 pb-3 text-xs text-gold-light">
             <span className="size-1.5 animate-ping rounded-full bg-gold" />
-            {scene.status === "keyframe" ? "Muse đang vẽ khung hình…" : "Muse đang tạo clip…"}
+            {scene.status === "keyframe" ? t.project.drawing : t.project.filming}
           </div>
         )}
       </div>
       <div className="flex flex-1 flex-col gap-2.5 p-3.5">
         <StatusBadge status={scene.status} />
         <p className="line-clamp-3 text-xs leading-relaxed text-muted">{scene.narration}</p>
-        {scene.error && <p className="line-clamp-3 text-xs text-danger">{scene.error}</p>}
+        {isRefusal(scene.error) ? (
+          <div className="flex flex-col gap-1 rounded-xl bg-warning/10 p-2.5 text-xs shadow-[inset_0_0_0_1px_rgb(255_200_120/0.2)]">
+            <span className="font-semibold text-warning">{t.project.refusedTitle}</span>
+            <span className="leading-relaxed text-muted">{t.project.refusedBody}</span>
+            <details className="text-subtle">
+              <summary className="cursor-pointer">{t.project.refusedReply}</summary>
+              <p className="mt-1 leading-relaxed">{refusalReply(scene.error)}</p>
+            </details>
+          </div>
+        ) : (
+          scene.error && <p className="line-clamp-3 text-xs text-danger">{scene.error}</p>
+        )}
         {canRetry && (
           <div className="mt-auto flex flex-wrap gap-1 pt-1">
             <Button variant="secondary" size="sm" disabled={pending} onClick={() => onRetry(false)}>
-              <RotateCcw /> Làm lại clip
+              <RotateCcw /> {t.project.redoClip}
             </Button>
             <Button variant="ghost" size="sm" disabled={pending} onClick={() => onRetry(true)}>
-              Cả ảnh
+              {t.project.redoAll}
+            </Button>
+            <Button variant="ghost" size="sm" disabled={pending} onClick={onEdit}>
+              <Pencil /> {t.project.edit}
             </Button>
           </div>
         )}
       </div>
     </Card>
+  );
+}
+
+function SceneEditDialog({
+  scene,
+  pending,
+  onClose,
+  onSubmit,
+}: {
+  scene: Scene;
+  pending: boolean;
+  onClose: () => void;
+  onSubmit: (input: SceneInput, newKeyframe: boolean) => void;
+}) {
+  const { t } = useI18n();
+  const ref = useRef<HTMLDialogElement>(null);
+  const [draft, setDraft] = useState<SceneInput>({
+    narration: scene.narration,
+    visualPrompt: scene.visualPrompt,
+    camera: scene.camera,
+  });
+  useEffect(() => {
+    ref.current?.showModal();
+  }, []);
+
+  const words = draft.narration.trim().split(/\s+/).filter(Boolean).length;
+  const visualChanged = draft.visualPrompt.trim() !== scene.visualPrompt.trim();
+  const valid = draft.narration.trim() !== "" && draft.visualPrompt.trim() !== "";
+  const submit = (newKeyframe: boolean) => {
+    onSubmit(draft, newKeyframe);
+    ref.current?.close();
+  };
+
+  return (
+    <dialog
+      ref={ref}
+      onClose={onClose}
+      className="m-auto w-[min(640px,calc(100vw-2rem))] rounded-3xl bg-[#0b0a12] p-0 text-foreground backdrop:bg-black/70 backdrop:backdrop-blur-sm"
+    >
+      <div className="glass gold-ring flex flex-col gap-5 rounded-3xl p-6">
+        <div className="flex items-start justify-between gap-4">
+          <div className="flex flex-col gap-1">
+            <h2 className="text-lg font-semibold">{t.project.editTitle(scene.index + 1)}</h2>
+            <p className="text-xs text-subtle">{t.project.editHint}</p>
+          </div>
+          <Button variant="ghost" size="icon" onClick={() => ref.current?.close()} title={t.project.cancel}>
+            <X />
+          </Button>
+        </div>
+
+        <label className="flex flex-col gap-2">
+          <span className="flex items-center justify-between text-xs text-muted">
+            <span className="flex items-center gap-1.5">
+              <Mic className="size-3.5 text-gold/80" /> {t.project.narration}
+            </span>
+            <span className={words > 25 ? "text-warning" : "text-subtle"}>{t.project.words(words)}</span>
+          </span>
+          <textarea
+            rows={3}
+            value={draft.narration}
+            onChange={(e) => setDraft((d) => ({ ...d, narration: e.target.value }))}
+            className={`${inputClass} text-[15px] leading-relaxed`}
+          />
+        </label>
+        <label className="flex flex-col gap-2">
+          <span className="flex items-center gap-1.5 text-xs text-muted">
+            <ImageIcon className="size-3.5 text-gold/80" /> {t.project.visual}
+          </span>
+          <textarea
+            rows={4}
+            value={draft.visualPrompt}
+            onChange={(e) => setDraft((d) => ({ ...d, visualPrompt: e.target.value }))}
+            className={`${inputClass} text-[13px] leading-relaxed`}
+          />
+        </label>
+        <label className="flex flex-col gap-2">
+          <span className="flex items-center gap-1.5 text-xs text-muted">
+            <Video className="size-3.5 text-gold/80" /> {t.project.camera}
+          </span>
+          <input
+            value={draft.camera ?? ""}
+            onChange={(e) => setDraft((d) => ({ ...d, camera: e.target.value }))}
+            className={`${inputClass} text-[13px]`}
+          />
+        </label>
+
+        {visualChanged && <p className="text-xs text-gold-light">{t.project.visualChanged}</p>}
+
+        <div className="flex flex-wrap justify-end gap-2">
+          <Button variant={visualChanged ? "ghost" : "primary"} disabled={pending || !valid} onClick={() => submit(false)}>
+            <RotateCcw /> {t.project.saveClip}
+          </Button>
+          <Button variant={visualChanged ? "primary" : "secondary"} disabled={pending || !valid} onClick={() => submit(true)}>
+            <ImageIcon /> {t.project.saveAll}
+          </Button>
+        </div>
+      </div>
+    </dialog>
   );
 }

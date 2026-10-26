@@ -112,7 +112,7 @@ export function SectionTitle({ children, aside }: { children: ReactNode; aside?:
   );
 }
 
-type Tone = "gold" | "info" | "success" | "danger" | "muted";
+export type Tone = "gold" | "info" | "success" | "danger" | "muted";
 
 const toneClass: Record<Tone, string> = {
   gold: "text-gold-light bg-gold/10 ring-gold/20",
@@ -122,29 +122,6 @@ const toneClass: Record<Tone, string> = {
   muted: "text-muted bg-[rgb(255_240_214/0.05)] ring-[rgb(255_232_196/0.1)]",
 };
 
-const dotClass: Record<Tone, string> = {
-  gold: "bg-gold",
-  info: "bg-info",
-  success: "bg-success",
-  danger: "bg-danger",
-  muted: "bg-subtle",
-};
-
-const statusMeta: Record<string, { label: string; tone: Tone; live?: boolean }> = {
-  scripting: { label: "Đang viết kịch bản", tone: "gold", live: true },
-  script_ready: { label: "Chờ duyệt", tone: "info" },
-  producing: { label: "Đang sản xuất", tone: "gold", live: true },
-  rendering: { label: "Đang ghép video", tone: "gold", live: true },
-  done: { label: "Hoàn thành", tone: "success" },
-  failed: { label: "Lỗi", tone: "danger" },
-  pending: { label: "Đang chờ", tone: "muted" },
-  keyframe: { label: "Tạo ảnh cảnh", tone: "gold", live: true },
-  video: { label: "Tạo clip", tone: "gold", live: true },
-  generating: { label: "Đang vẽ", tone: "gold", live: true },
-  ready: { label: "Sẵn sàng", tone: "success" },
-  none: { label: "Chưa có ảnh", tone: "muted" },
-};
-
 export function Badge({ tone = "muted", children }: { tone?: Tone; children: ReactNode }) {
   return (
     <span
@@ -152,21 +129,6 @@ export function Badge({ tone = "muted", children }: { tone?: Tone; children: Rea
     >
       {children}
     </span>
-  );
-}
-
-export function StatusBadge({ status }: { status: string }) {
-  const meta = statusMeta[status] ?? { label: status, tone: "muted" as Tone };
-  return (
-    <Badge tone={meta.tone}>
-      <span className="relative flex size-1.5">
-        {meta.live && (
-          <span className={`absolute inline-flex size-full animate-ping rounded-full opacity-75 ${dotClass[meta.tone]}`} />
-        )}
-        <span className={`relative inline-flex size-1.5 rounded-full ${dotClass[meta.tone]}`} />
-      </span>
-      {meta.label}
-    </Badge>
   );
 }
 

@@ -4,17 +4,21 @@ import { Suspense } from "react";
 import { db } from "@/db";
 import { characters } from "@/db/schema";
 import { Loading, PageHeader } from "@/components/ui";
+import { getDictionary } from "@/i18n/server";
 import { NicheForm } from "../niche-form";
 
-export const metadata: Metadata = { title: "Ngách mới" };
+export async function generateMetadata(): Promise<Metadata> {
+  return { title: (await getDictionary()).niches.newMetaTitle };
+}
 
-export default function NewNichePage() {
+export default async function NewNichePage() {
+  const t = await getDictionary();
   return (
     <>
       <PageHeader
-        eyebrow="Ngách"
-        title="Tạo ngách mới"
-        description="Một ngách là bộ quy tắc cho cả kênh: Muse viết kịch bản, chọn hình ảnh và nhịp video theo đúng cấu hình này."
+        eyebrow={t.niches.eyebrow}
+        title={t.niches.newTitle}
+        description={t.niches.newDescription}
       />
       <Suspense fallback={<Loading />}>
         <NewNiche />
