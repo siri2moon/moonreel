@@ -4,7 +4,7 @@
 
 **No Meta Muse video API yet? MoonReel automates Muse AI video generation for you.**
 
-Type one idea and get a finished short video: a niche-aware AI script, a recurring character with a consistent face, image-to-video clips from Meta Muse, and an MP4 with subtitles. Vertical 9:16 for TikTok · Instagram Reels · YouTube Shorts, and 16:9 for YouTube. Free and MIT-licensed.
+Type one idea and get a finished short video: a niche-aware AI script, recurring characters with consistent faces, image-to-video clips from Meta Muse, an MP4 with subtitles, and three ready-to-post vertical Shorts cut from it. Vertical 9:16 for TikTok · Instagram Reels · YouTube Shorts, and 16:9 for YouTube. Free and MIT-licensed.
 
 [Studio docs](moonreel-studio/README.md) · [Architecture](moonreel-studio/docs/ARCHITECTURE.md) · [Contributing](CONTRIBUTING.md)
 
@@ -17,7 +17,7 @@ Type one idea and get a finished short video: a niche-aware AI script, a recurri
 Meta's official developer API offers Muse chat and image models, but **no video model** (as of October 2026). Muse video generation, roughly ten-second 720p clips with audio, only exists inside the muse.ai app, one prompt at a time. If you searched for a *Meta Muse API*, *muse.ai API*, *Muse video API* or a way to *generate Muse videos programmatically or in bulk*, this is the gap MoonReel fills:
 
 - **Muse as an API.** MoonReel runs [muse2api](https://github.com/bynne2602/muse2api), a self-hosted, MIT-licensed bridge, so Muse chat, text-to-image and image-to-video become HTTP calls.
-- **A full production pipeline on top.** Script → keyframes with a consistent character → image-to-video clips → FFmpeg render with subtitles, queued and retried in the background.
+- **A full production pipeline on top.** Script → keyframes with a consistent cast of characters → image-to-video clips → FFmpeg render with subtitles → Shorts with a hook and burned-in captions, queued and retried in the background.
 - **No extra API fees.** Generation uses your own muse.ai account's allowance.
 - **Not locked in.** Providers sit behind one `GenerationProvider` interface, ready for an official Muse video API, Kling or Seedance.
 
@@ -27,7 +27,7 @@ Full write-up with a video walkthrough: [No Meta Muse Video API Yet? Generate Mu
 
 | Package | Description | Status |
 |---|---|---|
-| [`moonreel-studio`](moonreel-studio) | Web app: niche → AI script → review → per-scene production → MP4 render. Next.js 16, PostgreSQL, pg-boss, FFmpeg, Meta Muse via muse2api. | MVP |
+| [`moonreel-studio`](moonreel-studio) | Web app: niche → AI script → review → per-scene production → MP4 render → Shorts. Next.js 16, PostgreSQL, pg-boss, FFmpeg, Meta Muse via muse2api. | MVP |
 
 This repository is organised as a monorepo so future pieces can live beside the studio, for example an MCP connector that lets Muse pull jobs directly, or a public landing site.
 
@@ -77,13 +77,13 @@ MoonReel and muse2api are free and MIT-licensed; generation uses your own muse.a
 <details>
 <summary><b>What can I make with it?</b></summary>
 
-Faceless channels, storytelling, explainers, tips and facts: any short video with narration, a recurring character and a consistent visual style. Output is 9:16 for TikTok, Reels and Shorts or 16:9 for YouTube.
+Faceless channels, storytelling, explainers, tips and facts: any short video with narration, recurring characters and a consistent visual style. Every finished video also yields three vertical Shorts with a hook and captions, to bring viewers back to the full video. Output is 9:16 for TikTok, Reels and Shorts or 16:9 for YouTube.
 
 </details>
 
 ## Tiếng Việt
 
-**Meta Muse chưa có API tạo video?** MoonReel là phần mềm **mã nguồn mở, miễn phí** giúp **tự động tạo video AI bằng Meta Muse**. Bạn nhập một câu ý tưởng, AI viết kịch bản theo ngách, giữ nguyên khuôn mặt nhân vật qua từng cảnh, dựng clip và xuất MP4 có phụ đề cho TikTok, Reels, Shorts và YouTube. Giao diện có tiếng Việt. Cài đặt xem tại [moonreel-studio/README.md](moonreel-studio/README.md).
+**Meta Muse chưa có API tạo video?** MoonReel là phần mềm **mã nguồn mở, miễn phí** giúp **tự động tạo video AI bằng Meta Muse**. Bạn nhập một câu ý tưởng, AI viết kịch bản theo ngách, giữ nguyên khuôn mặt của cả dàn nhân vật qua từng cảnh, dựng clip và xuất MP4 có phụ đề cho TikTok, Reels, Shorts và YouTube, rồi cắt sẵn 3 Shorts dọc có hook và phụ đề để đăng kèm. Giao diện có tiếng Việt. Cài đặt xem tại [moonreel-studio/README.md](moonreel-studio/README.md).
 
 ## Documentation
 
