@@ -1,11 +1,11 @@
-import { relations } from "drizzle-orm";
+import { relations, sql } from "drizzle-orm";
 import {
-  type AnyPgColumn,
   boolean,
   integer,
   jsonb,
   pgEnum,
   pgTable,
+  primaryKey,
   real,
   text,
   timestamp,
@@ -71,6 +71,9 @@ export type ThumbnailSpec = {
   note: string | null;
 };
 
+/** Render state of one Short. */
+export const shortStatusEnum = pgEnum("short_status", ["rendering", "ready", "failed"]);
+
 export const sceneStatusEnum = pgEnum("scene_status", [
   "pending",
   "keyframe",
@@ -110,9 +113,6 @@ export const niches = pgTable("niches", {
   thumbnailStyle: text("thumbnail_style").notNull().default("impact"),
   thumbnailAccent: text("thumbnail_accent").notNull().default("#FFC23D"),
   thumbnailBrand: text("thumbnail_brand").notNull().default(""),
-  defaultCharacterId: uuid("default_character_id").references((): AnyPgColumn => characters.id, {
-    onDelete: "set null",
-  }),
   ...timestamps,
 });
 
@@ -134,9 +134,6 @@ export const projects = pgTable("projects", {
   nicheId: uuid("niche_id")
     .notNull()
     .references(() => niches.id, { onDelete: "restrict" }),
-  characterId: uuid("character_id").references(() => characters.id, {
-    onDelete: "set null",
-  }),
   aspectRatio: aspectRatioEnum("aspect_ratio").notNull(),
   status: projectStatusEnum("status").notNull().default("scripting"),
   error: text("error"),
@@ -154,6 +151,9 @@ export const projects = pgTable("projects", {
   thumbnail: jsonb("thumbnail").$type<ThumbnailSpec>(),
   thumbnailStatus: thumbnailStatusEnum("thumbnail_status").notNull().default("none"),
   thumbnailError: text("thumbnail_error"),
+  /** "writing" while the AI picks the moments for the Shorts; each Short then renders on its own. */
+  shortsStatus: postsStatusEnum("shorts_status").notNull().default("none"),
+  shortsError: text("shorts_error"),
   ...timestamps,
 });
 
@@ -171,31 +171,99 @@ export const scenes = pgTable(
     status: sceneStatusEnum("status").notNull().default("pending"),
     keyframePath: text("keyframe_path"),
     clipPath: text("clip_path"),
+    /** Cast members on screen in this shot, from the project's cast; empty means none. */
+    characterIds: uuid("character_ids")
+      .array()
+      .notNull()
+      .default(sql`'{}'::uuid[]`),
     error: text("error"),
     ...timestamps,
   },
   (t) => [uniqueIndex("scenes_project_index_uq").on(t.projectId, t.index)],
 );
 
-export const nichesRelations = relations(niches, ({ one, many }) => ({
+/** A vertical Short cut from a project's final video: scenes `fromScene`..`toScene` (0-based, inclusive). */
+export const shorts = pgTable(
+  "shorts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    index: integer("index").notNull(),
+    fromScene: integer("from_scene").notNull(),
+    toScene: integer("to_scene").notNull(),
+    /** On-screen hook; words wrapped in *stars* are drawn in the niche's accent colour. */
+    hook: text("hook").notNull(),
+    title: text("title").notNull(),
+    description: text("description").notNull().default(""),
+    status: shortStatusEnum("status").notNull().default("rendering"),
+    videoPath: text("video_path"),
+    error: text("error"),
+    ...timestamps,
+  },
+  (t) => [uniqueIndex("shorts_project_index_uq").on(t.projectId, t.index)],
+);
+
+/** A project's recurring cast, in order: position 0 is the lead. */
+export const projectCharacters = pgTable(
+  "project_characters",
+  {
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    characterId: uuid("character_id")
+      .notNull()
+      .references(() => characters.id, { onDelete: "cascade" }),
+    position: integer("position").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.projectId, t.characterId] })],
+);
+
+/** The cast preselected for a new video in a niche, in the same order. */
+export const nicheCharacters = pgTable(
+  "niche_characters",
+  {
+    nicheId: uuid("niche_id")
+      .notNull()
+      .references(() => niches.id, { onDelete: "cascade" }),
+    characterId: uuid("character_id")
+      .notNull()
+      .references(() => characters.id, { onDelete: "cascade" }),
+    position: integer("position").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.nicheId, t.characterId] })],
+);
+
+export const nichesRelations = relations(niches, ({ many }) => ({
   projects: many(projects),
-  defaultCharacter: one(characters, {
-    fields: [niches.defaultCharacterId],
-    references: [characters.id],
-  }),
+  defaultCast: many(nicheCharacters),
 }));
 
 export const charactersRelations = relations(characters, ({ many }) => ({
-  projects: many(projects),
+  projects: many(projectCharacters),
+  niches: many(nicheCharacters),
+}));
+
+export const projectCharactersRelations = relations(projectCharacters, ({ one }) => ({
+  project: one(projects, { fields: [projectCharacters.projectId], references: [projects.id] }),
+  character: one(characters, { fields: [projectCharacters.characterId], references: [characters.id] }),
+}));
+
+export const nicheCharactersRelations = relations(nicheCharacters, ({ one }) => ({
+  niche: one(niches, { fields: [nicheCharacters.nicheId], references: [niches.id] }),
+  character: one(characters, { fields: [nicheCharacters.characterId], references: [characters.id] }),
 }));
 
 export const projectsRelations = relations(projects, ({ one, many }) => ({
   niche: one(niches, { fields: [projects.nicheId], references: [niches.id] }),
-  character: one(characters, {
-    fields: [projects.characterId],
-    references: [characters.id],
-  }),
+  cast: many(projectCharacters),
   scenes: many(scenes),
+  shorts: many(shorts),
+}));
+
+export const shortsRelations = relations(shorts, ({ one }) => ({
+  project: one(projects, { fields: [shorts.projectId], references: [projects.id] }),
 }));
 
 export const scenesRelations = relations(scenes, ({ one }) => ({
@@ -206,5 +274,6 @@ export type Niche = typeof niches.$inferSelect;
 export type Character = typeof characters.$inferSelect;
 export type Project = typeof projects.$inferSelect;
 export type Scene = typeof scenes.$inferSelect;
+export type Short = typeof shorts.$inferSelect;
 export type NicheFormat = (typeof nicheFormatEnum.enumValues)[number];
 export type AspectRatio = (typeof aspectRatioEnum.enumValues)[number];

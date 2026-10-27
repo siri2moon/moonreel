@@ -9,6 +9,8 @@ export const scriptSchema = z.object({
         narration: z.string().min(1),
         visualPrompt: z.string().min(1),
         camera: z.string().default(""),
+        /** Names of the cast members on screen; mapped to character ids when saved. */
+        characters: z.array(z.string()).default([]),
       }),
     )
     .min(1),
@@ -25,10 +27,25 @@ const ASPECT_LABEL: Record<AspectRatio, string> = {
 
 const VOICE_OVER = "The narration is an off-screen voice-over: nobody in the shot speaks it.";
 
-function characterBlock(character: Character | null, voiceOver: boolean) {
-  if (!character) {
+/** Most cast members drawn into one shot; more than this blurs together in one reference image. */
+export const MAX_CHARACTERS_PER_SCENE = 3;
+
+function castBlock(cast: Character[], voiceOver: boolean) {
+  if (cast.length === 0) {
     return `No recurring character and no presenter on screen. ${VOICE_OVER} Scenes may use any visuals that fit the topic.`;
   }
+  if (cast.length > 1) {
+    const members = cast.map(
+      (c, i) => `- ${c.name}${i === 0 ? " (lead)" : ""}: ${c.appearance}${c.personality ? `. Personality: ${c.personality}` : ""}`,
+    );
+    return [
+      "Recurring cast (always exactly these characters, always looking exactly like this):",
+      ...members,
+      `${cast[0].name} is the lead and appears in most scenes. Every scene lists in "characters" the names of the cast members on screen, at most ${MAX_CHARACTERS_PER_SCENE}, the most important first; an empty list means none of them is in the shot.`,
+      `${VOICE_OVER} When a character talks, the narrator quotes it (e.g. 'and Max says: "Let's go!"').`,
+    ].join("\n");
+  }
+  const [character] = cast;
   return [
     `Recurring character: ${character.name}`,
     `Appearance: ${character.appearance}`,
@@ -57,13 +74,14 @@ export type Outline = z.infer<typeof outlineSchema>;
 
 type ScriptInput = {
   niche: Niche;
-  character: Character | null;
+  /** The project's cast, lead first. */
+  cast: Character[];
   topic: string;
   aspectRatio: AspectRatio;
   placeReference?: boolean;
 };
 
-function brief({ niche, character, topic, aspectRatio }: ScriptInput) {
+function brief({ niche, cast, topic, aspectRatio }: ScriptInput) {
   return `# Niche: ${niche.name}
 ${niche.description}
 
@@ -74,20 +92,25 @@ Tone: ${niche.tone || "natural"}
 Narration language: ${niche.language}
 Format: ${ASPECT_LABEL[aspectRatio]}
 
-# Character
-${characterBlock(character, !!niche.narratorVoiceId)}
+# ${cast.length > 1 ? "Cast" : "Character"}
+${castBlock(cast, !!niche.narratorVoiceId)}
 
 # Topic
 ${topic}`;
 }
 
-const SCENE_SHAPE = '{"narration": "...", "visualPrompt": "...", "camera": "..."}';
+const SCENE_SHAPE = '{"narration": "...", "visualPrompt": "...", "camera": "...", "characters": ["..."]}';
 
-function sceneRules(niche: Niche) {
+function sceneRules(niche: Niche, cast: Character[]) {
   return `- Each scene is one ${niche.sceneSeconds}-second AI-generated video clip.
 - "narration": what is spoken in that scene, in ${niche.language}, at most 25 words, so it fits ${niche.sceneSeconds} seconds.
-- "visualPrompt": in English, describe what is on screen (setting, action, expression, lighting). Do not describe the character's looks, they are added automatically. No on-screen text.
-- "camera": in English, one slow, smooth camera move (e.g. "slow push-in", "static medium shot"). Avoid fast action: it distorts the character.`;
+- "visualPrompt": in English, describe what is on screen (setting, action, expression, lighting). Refer to characters by name and do not describe their looks, they are added automatically. No on-screen text.
+- "camera": in English, one slow, smooth camera move (e.g. "slow push-in", "static medium shot"). Avoid fast action: it distorts the character.
+- "characters": ${
+    cast.length > 1
+      ? `names of the cast members on screen, exactly as written in the cast list, at most ${MAX_CHARACTERS_PER_SCENE}.`
+      : "an empty array."
+  }`;
 }
 
 /** The whole script in one reply, for scripts up to SCRIPT_PART_SCENES scenes. */
@@ -99,7 +122,7 @@ ${brief(input)}
 
 # Hard constraints
 - Exactly ${niche.sceneCount} scenes.
-${sceneRules(niche)}
+${sceneRules(niche, input.cast)}
 - Scene 1 must hook the viewer in the first 2 seconds. The last scene ends with a call to action.
 
 # Output
@@ -139,7 +162,7 @@ ${beats}
 ${previous.length ? `\n# Narration just before this part (continue from here, do not repeat it)\n${previous.join("\n")}\n` : ""}
 # Hard constraints
 - Write scenes ${from} to ${to} only: exactly ${to - from + 1} scenes, following beats ${from}–${to}.
-${sceneRules(niche)}
+${sceneRules(niche, input.cast)}
 
 # Output
 Reply with ONLY this JSON object, no markdown, no explanation:
@@ -151,7 +174,7 @@ Reply with ONLY this JSON object, no markdown, no explanation:
  * soundtrack. "narration" holds a short shot note for the editor; nothing is spoken.
  */
 export function buildAmbientScriptPrompt(input: ScriptInput) {
-  const { niche, character, topic, aspectRatio } = input;
+  const { niche, cast, topic, aspectRatio } = input;
   return `You design looping ambient background videos for music and soundscapes (study, relax, sleep). Reply with JSON only.
 
 # Niche: ${niche.name}
@@ -166,7 +189,7 @@ Format: ${ASPECT_LABEL[aspectRatio]}
 # Place
 ${topic}
 ${input.placeReference ? "\nThe user also attached a photo of this place, which the image generator uses as a visual guide. Keep every shot consistent with the description above and spend the words on what moves and the atmosphere.\n" : ""}
-${character ? `# Character\n${characterVisual(character)}. Appears in every shot doing something calm (reading, sipping, looking out); never talks to the camera, never moves fast.\n` : ""}# Hard constraints
+${cast.length ? `# ${cast.length > 1 ? "Cast" : "Character"}\n${cast.map(characterVisual).join("\n")}\n${cast.length > 1 ? "They appear" : "Appears"} in every shot doing something calm (reading, sipping, looking out); never talks to the camera, never moves fast.\n` : ""}# Hard constraints
 ${
   niche.fixedCamera
     ? `- Exactly ${niche.sceneCount} shots from ONE locked-off camera that never moves: every shot has the identical framing, composition, place, time of day, weather and colour palette. Shot 1 sets the frame; the others reuse its first image.
@@ -255,7 +278,7 @@ ${
   ambient
     ? `- youtube.title: at most 90 characters, in the style of ambience channels: the place and mood first, then what it is for and the length, e.g. "Rainy Night Café ☕ Soft Jazz & Rain Sounds for Study, Sleep (${length})". At most 2 emoji.
 - youtube.description: 2 opening lines that set the scene and contain the main keywords (they show in search), then a short paragraph inviting the viewer to stay a while, then one line asking to subscribe for more ambience, then 3 hashtags on the last line. No links, no chapter list.`
-    : `- youtube.title: at most 70 characters, main search keyword near the start, curiosity without lying.
+    : `- youtube.title: at most 70 characters. Start with the exact phrase viewers type into search (e.g. "Lion vs Cape Buffalo", "Nile Crocodile vs Wildebeest", "Losing My Job to AI"), then a plain, concrete curiosity hook ("Who Really Wins?", "The Deadliest River Crossing", "Why Lions Fear the Herd"). No poetic or abstract labels nobody searches for ("The Eternal Duel", "The River of Teeth"), curiosity without lying.
 - youtube.description: 2 opening lines that hook and contain the main keywords (they show in search), then a short paragraph on what the viewer learns, then one line asking to subscribe, then 3 hashtags on the last line. No links, no chapter list.`
 }
 - youtube.tags: 10–15 search phrases a viewer would type, most specific first, no "#".
@@ -320,8 +343,13 @@ export function parseReply<T>(raw: string, schema: z.ZodType<T>): T {
   throw lastError;
 }
 
-function characterVisual(character: Character | null) {
-  return character ? `${character.name}: ${character.appearance}` : "";
+function characterVisual(character: Character) {
+  return `${character.name}: ${character.appearance}`;
+}
+
+/** Who is on screen, for image prompts: names with their looks. */
+function castVisual(cast: Character[]) {
+  return cast.map(characterVisual).join("; ");
 }
 
 const THUMBNAIL_COMPOSITION: Record<string, Record<AspectRatio, string>> = {
@@ -338,18 +366,21 @@ const THUMBNAIL_COMPOSITION: Record<string, Record<AspectRatio, string>> = {
 /** Background for a thumbnail: framed so the niche's template has room for its headline. */
 export function buildThumbnailPrompt(input: {
   niche: Niche;
-  character: Character | null;
+  /** Characters to show; `board` names them in the order the reference image shows them. */
+  cast: Character[];
+  board?: string[];
   prompt: string;
   aspectRatio: AspectRatio;
   placeReference?: boolean;
 }) {
-  const { niche, character, aspectRatio } = input;
+  const { niche, cast, aspectRatio } = input;
   const composition = THUMBNAIL_COMPOSITION[niche.thumbnailStyle === "cinematic" ? "cinematic" : "side"];
   return [
     `YouTube thumbnail photo, ${ASPECT_LABEL[aspectRatio]}.`,
     input.placeReference && "Show the place in the reference photo: its layout, materials, colours and light.",
     input.prompt,
-    characterVisual(character),
+    cast.length > 0 && castVisual(cast),
+    boardNote(input.board),
     composition[aspectRatio],
     niche.format === "ambient"
       ? "Wide, inviting establishing view, soft warm light, gentle depth, rich but calm colour, crisp detail."
@@ -362,22 +393,37 @@ export function buildThumbnailPrompt(input: {
 }
 
 export function buildCharacterReferencePrompt(character: Character) {
-  return `Character reference sheet portrait of ${characterVisual(character)}. Full body, front view, neutral pose, plain light grey background, even studio lighting, sharp details. No text, no watermark.`;
+  return `Character reference sheet portrait of ${characterVisual(character)}. Full body, three-quarter front view, neutral pose, plain light grey background, even studio lighting, sharp details. No text, no watermark.`;
+}
+
+/**
+ * Several characters share one reference image as a side-by-side sheet; this tells Muse who is
+ * who, and that the sheet itself is not the scene.
+ */
+function boardNote(board: string[] | undefined) {
+  if (!board || board.length < 2) return null;
+  return `The reference image is a character sheet showing, from left to right: ${board.join(", ")}. Draw each of them exactly as on the sheet (shape, colours, markings, proportions) but in this scene; do not copy the sheet's plain background or side-by-side layout.`;
 }
 
 export function buildKeyframePrompt(input: {
   scene: Scene;
   niche: Niche;
-  character: Character | null;
+  /** The characters on screen in this shot. */
+  characters: Character[];
+  /** Names on the reference character sheet, left to right, when it shows several. */
+  board?: string[];
   /** The reference image is a photo of the place rather than the character sheet. */
   placeReference?: boolean;
 }) {
-  const { scene, niche, character, placeReference } = input;
+  const { scene, niche, characters, placeReference } = input;
+  const [character] = characters;
   return [
     placeReference &&
       "Use the reference photo as a guide to the place: its layout, windows, furniture, materials, colours and light. Where the photo and the description differ, follow the description. Scene:",
     scene.visualPrompt,
-    character &&
+    characters.length > 1 && `Characters in this shot: ${castVisual(characters)}.`,
+    characters.length > 1 && !placeReference && boardNote(input.board),
+    characters.length === 1 &&
       (placeReference
         ? `The main character is ${characterVisual(character)}.`
         : `The main character is ${characterVisual(character)}. Keep the character exactly identical to the reference image (face, hair, outfit, colors, proportions).`),
@@ -391,16 +437,20 @@ export function buildKeyframePrompt(input: {
 export function buildVideoPrompt(input: {
   scene: Scene;
   niche: Niche;
-  character: Character | null;
+  /** The characters on screen in this shot. */
+  characters: Character[];
+  /** A single-character project: that character speaks the narration itself. */
+  speaker?: Character;
 }) {
-  const { scene, niche, character } = input;
+  const { scene, niche, characters, speaker } = input;
+  const names = characters.map((c) => c.name).join(", ");
   if (niche.format === "ambient") {
     return [
       scene.visualPrompt,
       // Muse tends to add a slow push-in; jobs.ts also measures each clip and redoes moving ones.
       "Camera: locked-off static shot on a tripod. The camera does not move at all: no zoom, no push-in, no pull-out, no pan, no tilt, no dolly, no drift, no shake, no cuts. The framing of the last frame is identical to the first.",
       niche.visualStyle && `Visual style: ${niche.visualStyle}.`,
-      character && `Keep ${character.name} looking exactly like in the first frame; calm, small movements only.`,
+      names && `Keep ${names} looking exactly like in the first frame; calm, small movements only.`,
       // The clip loops under a soundtrack: steady motion from the first frame to the last.
       "Animate only what is already in the first frame: do not add, remove or replace any person, animal, vehicle or object.",
       "Gentle, continuous ambient motion that stays the same throughout; nothing starts, stops, enters or leaves the frame. The last frame should look much like the first.",
@@ -413,16 +463,79 @@ export function buildVideoPrompt(input: {
     scene.visualPrompt,
     scene.camera && `Camera: ${scene.camera}.`,
     niche.visualStyle && `Visual style: ${niche.visualStyle}.`,
-    character && `Keep ${character.name} looking exactly like in the first frame.`,
+    names && `Keep ${names} looking exactly like in the first frame.`,
     niche.narratorVoiceId
       ? // The narrator voice is added at render time; any speech here would talk over it.
         "Natural ambient sound only: no speech, no narration, no music."
-      : character
-        ? `${character.name} says in ${niche.language}: "${scene.narration}"`
+      : speaker
+        ? `${speaker.name} says in ${niche.language}: "${scene.narration}"`
         : // Spelled out so Muse does not put a presenter in frame or make the animals lip-sync.
           `Off-screen voice-over narration in ${niche.language}${niche.tone ? ` (voice: ${niche.tone})` : ""}, nobody on screen speaks: "${scene.narration}"`,
     "Smooth, slow motion. No on-screen text or subtitles.",
   ]
     .filter(Boolean)
     .join(" ");
+}
+
+export const shortsPlanSchema = z.object({
+  shorts: z
+    .array(
+      z.object({
+        fromScene: z.number().int(),
+        toScene: z.number().int(),
+        hook: z.string().min(1),
+        title: z.string().min(1),
+        description: z.string().default(""),
+      }),
+    )
+    .min(1),
+});
+
+export type ShortsPlan = z.infer<typeof shortsPlanSchema>;
+
+export const SHORTS_SHAPE =
+  '{"shorts": [{"fromScene": number, "toScene": number, "hook": string, "title": string, "description": string}]}';
+
+/** Picks the strongest moments of a finished video to cut into vertical Shorts. */
+export function buildShortsPrompt(input: {
+  niche: Niche;
+  title: string;
+  topic: string;
+  /** Narration of each scene with its start and length in the rendered video, in seconds. */
+  scenes: { narration: string; start: number; seconds: number }[];
+  count: number;
+  minSeconds: number;
+  maxSeconds: number;
+}) {
+  const { niche, scenes, count, minSeconds, maxSeconds } = input;
+  const timeline = scenes
+    .map((s, i) => `${i + 1}. [${Math.round(s.start)}s, ${Math.round(s.seconds)}s long] ${s.narration}`)
+    .join("\n");
+  return `You are a YouTube Shorts editor who turns long videos into Shorts that stop the scroll. Reply with JSON only.
+
+# Long video
+Title: ${input.title}
+Topic: ${input.topic}
+Niche: ${niche.name}. ${niche.description}
+Audience language: ${niche.language}
+
+# Narration, numbered by scene, with start time and length
+${timeline}
+
+# Task
+Pick the ${count} best moments to cut into vertical Shorts. Each Short is a run of consecutive scenes, "fromScene" to "toScene" (scene numbers above, inclusive), played with the original narration.
+
+# Rules
+- Each Short lasts ${minSeconds}–${maxSeconds} seconds in total (add up the scene lengths). The ${count} Shorts must not overlap.
+- The first scene of a Short must grab attention on its own within 2 seconds: a striking fact, a threat, a reversal or a question. Never start on a slow scene-setting line ("In the heart of…", "This is a story of…").
+- The last scene must land a payoff: an outcome, a surprising fact or a strong closing line, so the Short feels complete and makes people watch again. Prefer endings that leave a question the long video answers.
+- Prefer the most dramatic, emotional or surprising parts; give each Short a different angle.
+- "hook": the text printed at the top of the Short for its whole length, in ${niche.language}: 3–7 words, at most 40 characters, a curiosity gap that the clip pays off (a stake, a number, a contrast, a question). Wrap the 1–2 most important words in *stars* to colour them, e.g. "ONE KICK CAN *BREAK A JAW*". No emoji, no hashtags.
+- "title": the YouTube Shorts title in ${niche.language}, at most 70 characters: the main search keyword plus curiosity, true to the clip. No hashtags in the title.
+- "description": one or two short lines that make people comment, then "Full video on the channel.", then 3 hashtags including #shorts on the last line.
+- Be accurate to the narration: no claims the clip does not make.
+
+# Output
+Reply with ONLY this JSON object, no markdown, no explanation:
+${SHORTS_SHAPE}`;
 }

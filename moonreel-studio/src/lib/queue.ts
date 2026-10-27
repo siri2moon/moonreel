@@ -8,6 +8,8 @@ export const QUEUES = {
   projectRender: "project-render",
   projectPosts: "project-posts",
   projectThumbnail: "project-thumbnail",
+  projectShorts: "project-shorts",
+  shortRender: "short-render",
 } as const;
 
 export interface ScriptGenerateJob {
@@ -27,6 +29,12 @@ export interface ProjectPostsJob {
 }
 export interface ProjectThumbnailJob {
   projectId: string;
+}
+export interface ProjectShortsJob {
+  projectId: string;
+}
+export interface ShortRenderJob {
+  shortId: string;
 }
 
 const globalForBoss = globalThis as unknown as { boss?: Promise<PgBoss> };
@@ -58,6 +66,16 @@ async function createBoss() {
     policy: "short",
     retryLimit: 1,
     expireInSeconds: 10 * 60,
+  });
+  await boss.createQueue(QUEUES.projectShorts, {
+    policy: "short",
+    retryLimit: 1,
+    expireInSeconds: 10 * 60,
+  });
+  await boss.createQueue(QUEUES.shortRender, {
+    policy: "short",
+    retryLimit: 1,
+    expireInSeconds: 15 * 60,
   });
   return boss;
 }
@@ -110,4 +128,21 @@ export async function enqueueThumbnail(projectId: string) {
   await boss.send(QUEUES.projectThumbnail, { projectId } satisfies ProjectThumbnailJob, {
     singletonKey: projectId,
   });
+}
+
+export async function enqueueShortsPlan(projectId: string) {
+  const boss = await getBoss();
+  await boss.send(QUEUES.projectShorts, { projectId } satisfies ProjectShortsJob, {
+    singletonKey: projectId,
+  });
+}
+
+/** Enqueues the Shorts' renders in one insert; each Short renders on its own. */
+export async function enqueueShortRenders(shortIds: string[]) {
+  if (shortIds.length === 0) return;
+  const boss = await getBoss();
+  await boss.insert(
+    QUEUES.shortRender,
+    shortIds.map((shortId) => ({ data: { shortId } satisfies ShortRenderJob, singletonKey: shortId })),
+  );
 }

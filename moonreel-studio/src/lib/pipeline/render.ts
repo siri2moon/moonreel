@@ -7,7 +7,7 @@ const FRAME: Record<AspectRatio, { w: number; h: number }> = {
   "16:9": { w: 1280, h: 720 },
 };
 
-function exec(cmd: string, args: string[]) {
+export function exec(cmd: string, args: string[]) {
   return new Promise<{ stdout: string; stderr: string }>((resolve, reject) => {
     const child = spawn(cmd, args);
     let stdout = "";
@@ -199,11 +199,31 @@ export async function mediaDuration(file: string) {
   return (await probe(file)).duration;
 }
 
-// Long enough to hide the seam between two clips, short enough to leave most of each clip clean.
-const LOOP_CROSSFADE_S = 1.5;
+// Muse eases every clip in from its still keyframe: motion in the first second is a third of
+// what it reaches later, so starting each clip there makes rain and mist brake at every seam.
+const LOOP_HEAD_TRIM_S = 1;
+const LOOP_TAIL_TRIM_S = 1.5;
+// Long, eased crossfades: the end of one clip and the start of the next differ (mist and
+// steam sit elsewhere), and a short linear dissolve shows both layers as a ghost.
+const LOOP_CROSSFADE_S = 2.5;
+// Smoothstep on xfade's progress P (1 → 0), so the blend starts and ends gently.
+const EASED_FADE = "A*(P*P*(3-2*P))+B*(1-P*P*(3-2*P))";
 
-function normalizeVideo(w: number, h: number) {
-  return `scale=${w}:${h}:force_original_aspect_ratio=increase,crop=${w}:${h},setsar=1,fps=30,format=yuv420p`;
+function normalizeVideo(w: number, h: number, fps: string) {
+  return `scale=${w}:${h}:force_original_aspect_ratio=increase,crop=${w}:${h},setsar=1,fps=${fps},format=yuv420p`;
+}
+
+/** The clip's own frame rate, e.g. "24/1"; converting Muse's 24 fps to 30 repeats every 4th frame. */
+async function frameRate(file: string) {
+  const out = await run("ffprobe", [
+    "-v", "error",
+    "-select_streams", "v:0",
+    "-show_entries", "stream=r_frame_rate",
+    "-of", "csv=p=0",
+    file,
+  ]);
+  const rate = out.trim();
+  return /^\d+(\/\d+)?$/.test(rate) && !rate.startsWith("0") ? rate : "30";
 }
 
 /**
@@ -220,29 +240,35 @@ export async function renderLoop(input: {
   const { clips, audio, aspectRatio, outFile } = input;
   const { w, h } = FRAME[aspectRatio];
   // Independent ffprobe processes, not queries: probing in parallel is just faster.
-  const [durations, audioSeconds] = await Promise.all([
+  const [durations, audioSeconds, fps] = await Promise.all([
     Promise.all(clips.map(mediaDuration)),
     mediaDuration(audio),
+    frameRate(clips[0]),
   ]);
-  const fade = Math.min(LOOP_CROSSFADE_S, Math.min(...durations) / 3);
+  const head = Math.min(LOOP_HEAD_TRIM_S, Math.min(...durations) / 5);
+  const tail = Math.min(LOOP_TAIL_TRIM_S, Math.min(...durations) / 5);
+  const used = durations.map((d) => d - head - tail);
+  const fade = Math.min(LOOP_CROSSFADE_S, Math.min(...used) / 3);
 
   // Clip 1 goes in a second time at the end: the seam fades into it, and the loop is cut where
   // that copy reaches the frame the loop starts on.
   const sequence = [...clips, clips[0]];
-  const lengths = [...durations, durations[0]];
+  const lengths = [...used, used[0]];
   const filters = sequence.map(
     (_, i) =>
       // tpad + trim pin every clip to its probed length, which the crossfade offsets rely on.
-      `[${i}:v]${normalizeVideo(w, h)},tpad=stop_mode=clone:stop_duration=1,trim=0:${lengths[i].toFixed(3)},setpts=PTS-STARTPTS[c${i}]`,
+      `[${i}:v]${normalizeVideo(w, h, fps)},tpad=stop_mode=clone:stop_duration=1,trim=start=${head.toFixed(3)}:duration=${lengths[i].toFixed(3)},setpts=PTS-STARTPTS[c${i}]`,
   );
   let previous = "c0";
   let offset = 0;
   for (let i = 1; i < sequence.length; i++) {
     offset += lengths[i - 1] - fade;
-    filters.push(`[${previous}][c${i}]xfade=transition=fade:duration=${fade.toFixed(3)}:offset=${offset.toFixed(3)}[x${i}]`);
+    filters.push(
+      `[${previous}][c${i}]xfade=transition=custom:expr='${EASED_FADE}':duration=${fade.toFixed(3)}:offset=${offset.toFixed(3)}[x${i}]`,
+    );
     previous = `x${i}`;
   }
-  const period = durations.reduce((sum, d) => sum + d, 0) - clips.length * fade;
+  const period = used.reduce((sum, d) => sum + d, 0) - clips.length * fade;
   filters.push(`[${previous}]trim=start=${fade.toFixed(3)}:duration=${period.toFixed(3)},setpts=PTS-STARTPTS[v]`);
 
   const loopFile = outFile.replace(/(\.mp4)?$/, "-loop.mp4");

@@ -10,13 +10,15 @@ import { db } from "@/db";
 import { NICHE_COOKIE } from "@/lib/active-niche";
 import { hasLocale, LOCALE_COOKIE } from "@/i18n/config";
 import { getActionDictionary } from "@/i18n/action";
-import { characters, niches, projects, scenes } from "@/db/schema";
+import { characters, nicheCharacters, niches, projectCharacters, projects, scenes, shorts } from "@/db/schema";
 import {
   enqueueCharacterReference,
   enqueuePosts,
   enqueueRender,
   enqueueScenes,
   enqueueScript,
+  enqueueShortRenders,
+  enqueueShortsPlan,
   enqueueThumbnail,
 } from "@/lib/queue";
 import { mediaDuration } from "@/lib/pipeline/render";
@@ -24,6 +26,16 @@ import { REFERENCE_KEY } from "@/lib/reference-image";
 import { SOUNDTRACK_KEY } from "@/lib/soundtrack";
 import { THUMBNAIL_STYLES } from "@/lib/thumbnail-styles";
 import { resolveKey, saveFile } from "@/lib/storage";
+
+/** Largest cast a project (or a niche's default cast) can have. */
+const MAX_CAST = 8;
+
+/** An ordered cast posted as comma-separated character ids, lead first. */
+const castIdsSchema = z
+  .string()
+  .default("")
+  .transform((v) => [...new Set(v.split(",").filter(Boolean))])
+  .pipe(z.array(z.uuid()).max(MAX_CAST));
 
 // ---------------------------------------------------------------- niches
 
@@ -49,10 +61,7 @@ const nicheSchema = z.object({
   sceneSeconds: z.coerce.number().int().min(4).max(10),
   language: z.string().trim().min(1),
   defaultAspectRatio: z.enum(["9:16", "16:9"]).default("9:16"),
-  defaultCharacterId: z
-    .union([z.uuid(), z.literal("")])
-    .default("")
-    .transform((v) => v || null),
+  defaultCastIds: castIdsSchema,
   narratorVoiceId: z
     .string()
     .trim()
@@ -82,15 +91,25 @@ export async function selectNiche(id: string) {
 }
 
 export async function saveNiche(id: string | null, formData: FormData) {
-  const data = nicheSchema.parse(Object.fromEntries(formData));
+  const { defaultCastIds, ...data } = nicheSchema.parse(Object.fromEntries(formData));
+  const nicheId = await db.transaction(async (tx) => {
+    const [row] = id
+      ? await tx.update(niches).set(data).where(eq(niches.id, id)).returning({ id: niches.id })
+      : await tx.insert(niches).values(data).returning({ id: niches.id });
+    await tx.delete(nicheCharacters).where(eq(nicheCharacters.nicheId, row.id));
+    if (defaultCastIds.length) {
+      await tx
+        .insert(nicheCharacters)
+        .values(defaultCastIds.map((characterId, position) => ({ nicheId: row.id, characterId, position })));
+    }
+    return row.id;
+  });
   if (id) {
-    await db.update(niches).set(data).where(eq(niches.id, id));
     revalidatePath("/", "layout");
     redirect("/niches");
   }
   // A freshly created niche becomes the active one: that is why it was created.
-  const [row] = await db.insert(niches).values(data).returning({ id: niches.id });
-  await setActiveNiche(row.id);
+  await setActiveNiche(nicheId);
   redirect("/");
 }
 
@@ -173,7 +192,7 @@ export async function deleteCharacter(id: string) {
 const projectSchema = z.object({
   topic: z.string().trim().min(3),
   nicheId: z.uuid(),
-  characterId: z.union([z.uuid(), z.literal("")]).transform((v) => v || null),
+  castIds: castIdsSchema,
   aspectRatio: z.enum(["9:16", "16:9"]),
   audioPath: z
     .union([z.string().regex(SOUNDTRACK_KEY), z.literal("")])
@@ -186,7 +205,7 @@ const projectSchema = z.object({
 });
 
 export async function createProject(formData: FormData) {
-  const data = projectSchema.parse(Object.fromEntries(formData));
+  const { castIds, ...data } = projectSchema.parse(Object.fromEntries(formData));
   const niche = await db.query.niches.findFirst({
     where: eq(niches.id, data.nicheId),
     columns: { format: true },
@@ -195,10 +214,18 @@ export async function createProject(formData: FormData) {
     throw new Error((await getActionDictionary()).errors.noSoundtrack);
   }
   const audioSeconds = data.audioPath ? await mediaDuration(resolveKey(data.audioPath)) : null;
-  const [row] = await db
-    .insert(projects)
-    .values({ ...data, audioSeconds, title: data.topic.slice(0, 80), status: "scripting" })
-    .returning({ id: projects.id });
+  const row = await db.transaction(async (tx) => {
+    const [project] = await tx
+      .insert(projects)
+      .values({ ...data, audioSeconds, title: data.topic.slice(0, 80), status: "scripting" })
+      .returning({ id: projects.id });
+    if (castIds.length) {
+      await tx
+        .insert(projectCharacters)
+        .values(castIds.map((characterId, position) => ({ projectId: project.id, characterId, position })));
+    }
+    return project;
+  });
   await enqueueScript(row.id);
   redirect(`/projects/${row.id}`);
 }
@@ -217,6 +244,7 @@ const sceneInputSchema = z.array(
     narration: z.string().trim().min(1),
     visualPrompt: z.string().trim().min(1),
     camera: z.string().trim().default(""),
+    characterIds: z.array(z.uuid()).max(MAX_CAST).default([]),
   }),
 );
 
@@ -385,6 +413,54 @@ export async function updateThumbnail(projectId: string, input: ThumbnailInput, 
     })
     .where(eq(projects.id, projectId));
   await enqueueThumbnail(projectId);
+  revalidatePath(`/projects/${projectId}`);
+}
+
+/** Asks the AI to pick the best moments of a finished video again and cuts new Shorts. */
+export async function cutShorts(projectId: string) {
+  const rows = await db
+    .update(projects)
+    .set({ shortsStatus: "writing", shortsError: null })
+    .where(and(eq(projects.id, projectId), eq(projects.status, "done")))
+    .returning({ id: projects.id });
+  if (rows.length === 0) return;
+  await enqueueShortsPlan(projectId);
+  revalidatePath(`/projects/${projectId}`);
+}
+
+const shortInputSchema = z
+  .object({
+    hook: z.string().trim().min(1).max(80),
+    title: z.string().trim().min(1).max(100),
+    description: z.string().trim().max(5000).default(""),
+    fromScene: z.coerce.number().int().min(0),
+    toScene: z.coerce.number().int().min(0),
+  })
+  .refine((v) => v.toScene >= v.fromScene, { message: "The last scene comes before the first one" });
+
+export type ShortInput = z.input<typeof shortInputSchema>;
+
+/**
+ * Saves a Short's hook, scenes and captions. The clip is cut again only when what is on screen
+ * changed (hook or scenes); a new title or description is just saved.
+ */
+export async function updateShort(projectId: string, shortId: string, input: ShortInput) {
+  const fields = shortInputSchema.parse(input);
+  const short = await db.query.shorts.findFirst({
+    where: and(eq(shorts.id, shortId), eq(shorts.projectId, projectId)),
+    columns: { hook: true, fromScene: true, toScene: true, status: true },
+  });
+  if (!short) return;
+  const recut =
+    short.status === "failed" ||
+    fields.hook !== short.hook ||
+    fields.fromScene !== short.fromScene ||
+    fields.toScene !== short.toScene;
+  await db
+    .update(shorts)
+    .set({ ...fields, ...(recut ? { status: "rendering" as const, error: null } : {}) })
+    .where(eq(shorts.id, shortId));
+  if (recut) await enqueueShortRenders([shortId]);
   revalidatePath(`/projects/${projectId}`);
 }
 

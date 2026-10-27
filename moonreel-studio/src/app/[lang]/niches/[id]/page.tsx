@@ -2,7 +2,8 @@ import { asc, eq } from "drizzle-orm";
 import { notFound } from "next/navigation";
 import { Suspense } from "react";
 import { db } from "@/db";
-import { characters, niches } from "@/db/schema";
+import { nicheCharacters, niches } from "@/db/schema";
+import { getCastOptions } from "@/lib/views";
 import { Loading, PageHeader } from "@/components/ui";
 import { getDictionary } from "@/i18n/server";
 import { NicheForm } from "../niche-form";
@@ -18,8 +19,11 @@ export default function EditNichePage(props: PageProps<"/[lang]/niches/[id]">) {
 async function EditNiche({ params }: { params: PageProps<"/[lang]/niches/[id]">["params"] }) {
   const { id } = await params;
   const [niche, characterRows, t] = await Promise.all([
-    db.query.niches.findFirst({ where: eq(niches.id, id) }),
-    db.select({ id: characters.id, name: characters.name }).from(characters).orderBy(asc(characters.name)),
+    db.query.niches.findFirst({
+      where: eq(niches.id, id),
+      with: { defaultCast: { orderBy: [asc(nicheCharacters.position)], columns: { characterId: true } } },
+    }),
+    getCastOptions(),
     getDictionary(),
   ]);
   if (!niche) notFound();
@@ -35,7 +39,11 @@ async function EditNiche({ params }: { params: PageProps<"/[lang]/niches/[id]">[
         }
         description={t.niches.editDescription}
       />
-      <NicheForm niche={niche} characters={characterRows} />
+      <NicheForm
+        niche={niche}
+        characters={characterRows}
+        defaultCastIds={niche.defaultCast.map((c) => c.characterId)}
+      />
     </>
   );
 }

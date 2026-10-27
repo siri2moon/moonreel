@@ -1,4 +1,4 @@
-import { desc, eq, sql } from "drizzle-orm";
+import { asc, desc, eq, sql } from "drizzle-orm";
 import {
   CheckCheck,
   Clapperboard,
@@ -17,7 +17,7 @@ import {
 import Link from "next/link";
 import { Suspense } from "react";
 import { db } from "@/db";
-import { projects, scenes, type Niche } from "@/db/schema";
+import { projectCharacters, projects, scenes, type Niche } from "@/db/schema";
 import { NichePicker } from "@/components/niche-picker";
 import { StatusBadge } from "@/components/status-badge";
 import { Chip, Empty, Eyebrow, LinkButton, Loading, SectionTitle, Stat } from "@/components/ui";
@@ -56,7 +56,10 @@ async function Dashboard({ niche }: { niche: Niche }) {
       orderBy: [desc(projects.createdAt)],
       limit: 60,
       with: {
-        character: { columns: { name: true } },
+        cast: {
+          orderBy: [asc(projectCharacters.position)],
+          with: { character: { columns: { name: true } } },
+        },
         // Only the opening scene, as the card thumbnail.
         scenes: {
           columns: { keyframePath: true, updatedAt: true },
@@ -141,9 +144,10 @@ async function Dashboard({ niche }: { niche: Niche }) {
                       {p.title}
                     </h3>
                     <div className="mt-auto flex items-center gap-3 text-xs text-subtle">
-                      {p.character && (
-                        <span className="flex items-center gap-1">
-                          <UserRound className="size-3.5" /> {p.character.name}
+                      {p.cast.length > 0 && (
+                        <span className="flex min-w-0 items-center gap-1">
+                          <UserRound className="size-3.5 shrink-0" />
+                          <span className="truncate">{p.cast.map((c) => c.character.name).join(", ")}</span>
                         </span>
                       )}
                       <span>{p.createdAt.toLocaleDateString(t.meta.dateLocale)}</span>

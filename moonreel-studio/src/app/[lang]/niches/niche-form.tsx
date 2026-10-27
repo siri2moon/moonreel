@@ -17,15 +17,12 @@ import { deleteNiche, saveNiche } from "@/app/actions";
 import type { Niche, NicheFormat } from "@/db/schema";
 import { Button, Card, ErrorNote, Field, inputClass } from "@/components/ui";
 import { useI18n } from "@/i18n/client";
+import { CastPicker, type CastOption } from "@/components/cast-picker";
 import { ThumbnailPreview } from "@/components/thumbnail-preview";
 import { THUMBNAIL_STYLES, type ThumbnailStyle } from "@/lib/thumbnail-styles";
 
 const ICONS = ["💰", "🔭", "🌙", "🤖", "😂", "🍜", "💪", "✈️", "📚", "🎮", "💄", "🐾", "🧠", "⚽", "🎵", "✦"];
 
-export interface CharacterOption {
-  id: string;
-  name: string;
-}
 
 function Section({
   icon,
@@ -52,7 +49,15 @@ function Section({
   );
 }
 
-export function NicheForm({ niche, characters }: { niche?: Niche; characters: CharacterOption[] }) {
+export function NicheForm({
+  niche,
+  characters,
+  defaultCastIds,
+}: {
+  niche?: Niche;
+  characters: CastOption[];
+  defaultCastIds: string[];
+}) {
   const { t } = useI18n();
   const f = t.nicheForm;
   const [icon, setIcon] = useState(niche?.icon ?? "✦");
@@ -216,16 +221,12 @@ export function NicheForm({ niche, characters }: { niche?: Niche; characters: Ch
             className={inputClass}
           />
         </Field>
-        <Field label={f.defaultCharacter} hint={f.defaultCharacterHint}>
-          <select name="defaultCharacterId" defaultValue={niche?.defaultCharacterId ?? ""} className={inputClass}>
-            <option value="">{t.common.none}</option>
-            {characters.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-              </option>
-            ))}
-          </select>
-        </Field>
+        {/* Not a Field: a <label> would pass clicks on its text to the first character button. */}
+        <div className="flex flex-col gap-2">
+          <span className="text-[13px] font-medium text-foreground/90">{f.defaultCharacter}</span>
+          <CastPicker name="defaultCastIds" options={characters} defaultIds={defaultCastIds} />
+          <span className="text-xs leading-relaxed text-subtle">{f.defaultCharacterHint}</span>
+        </div>
       </Section>
 
       <Section icon={<ImageIcon />} title={f.thumbnail} description={f.thumbnailHint}>

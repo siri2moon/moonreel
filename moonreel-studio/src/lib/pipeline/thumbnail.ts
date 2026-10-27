@@ -13,7 +13,7 @@ export const THUMBNAIL_SIZE: Record<AspectRatio, { width: number; height: number
   "9:16": { width: 1080, height: 1920 },
 };
 
-type FontName = "Anton" | "Oswald" | "Montserrat";
+export type FontName = "Anton" | "Oswald" | "Montserrat";
 
 const FONT_FILES: { name: FontName; file: string; weight: 400 | 700 | 900 }[] = [
   { name: "Anton", file: "Anton-Regular.ttf", weight: 400 },
@@ -32,7 +32,7 @@ const METRICS: Record<FontName, { upper: number; lower: number; space: number }>
 
 let fontsPromise: Promise<Parameters<typeof satori>[1]["fonts"]> | undefined;
 
-function loadFonts() {
+export function loadFonts() {
   fontsPromise ??= Promise.all(
     FONT_FILES.map(async (f) => ({
       name: f.name,
@@ -44,7 +44,7 @@ function loadFonts() {
   return fontsPromise;
 }
 
-type Word = { text: string; accent: boolean };
+export type Word = { text: string; accent: boolean };
 
 /** `LION VS *CAPE BUFFALO*` → words, the starred ones drawn in the accent colour. */
 export function parseHeadline(markup: string): Word[] {
@@ -87,7 +87,7 @@ type Fit = {
 };
 
 /** The largest font size whose greedy line breaks fit the box; lines are returned as words. */
-function fitHeadline(words: Word[], fit: Fit) {
+export function fitHeadline(words: Word[], fit: Fit) {
   const shown = words.map((w) => ({ ...w, text: fit.uppercase ? w.text.toUpperCase() : w.text }));
   for (let size = fit.maxSize; size >= fit.minSize; size -= 2) {
     const gap = METRICS[fit.font].space * size + (fit.wordPadding ?? 0) * size;
@@ -119,9 +119,9 @@ function fitHeadline(words: Word[], fit: Fit) {
 }
 
 // Satori takes React-like element objects; this keeps the templates readable without JSX.
-type Node = { type: string; props: Record<string, unknown> };
+export type Node = { type: string; props: Record<string, unknown> };
 type Child = Node | string | null | false;
-function h(type: string, style: Record<string, unknown>, ...children: Child[]): Node {
+export function h(type: string, style: Record<string, unknown>, ...children: Child[]): Node {
   const kids = children.filter((c): c is Node | string => !!c);
   return { type, props: { style: { display: "flex", ...style }, children: kids } };
 }
@@ -136,8 +136,8 @@ export type ThumbnailInput = {
   aspectRatio: AspectRatio;
 };
 
-const INK = "#ffffff";
-const DARK = "#0b0b0c";
+export const INK = "#ffffff";
+export const DARK = "#0b0b0c";
 
 function overlay(input: ThumbnailInput, words: Word[]): Node {
   const { width, height } = THUMBNAIL_SIZE[input.aspectRatio];

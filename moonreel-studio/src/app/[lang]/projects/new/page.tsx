@@ -1,11 +1,12 @@
-import { asc } from "drizzle-orm";
-import { Clock, Compass, Languages, Monitor, Palette, Smartphone, UserRoundX, WandSparkles } from "lucide-react";
+import { asc, eq } from "drizzle-orm";
+import { Clock, Compass, Languages, Monitor, Palette, Smartphone, WandSparkles } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Suspense, type ReactNode } from "react";
 import { createProject } from "@/app/actions";
 import { db } from "@/db";
-import { characters } from "@/db/schema";
+import { characters, nicheCharacters } from "@/db/schema";
+import { CastPicker } from "@/components/cast-picker";
 import { ReferenceImageUpload } from "@/components/reference-image-upload";
 import { SoundtrackUpload } from "@/components/soundtrack-upload";
 import { Button, Card, Chip, Empty, Eyebrow, inputClass, LinkButton, Loading, PageHeader } from "@/components/ui";
@@ -60,10 +61,15 @@ async function NewProject() {
     );
   }
 
-  const characterRows = await db.select().from(characters).orderBy(asc(characters.name));
-  const defaultCharacter = characterRows.some((c) => c.id === niche.defaultCharacterId)
-    ? niche.defaultCharacterId
-    : "";
+  const [characterRows, defaultCast] = await Promise.all([
+    db.select().from(characters).orderBy(asc(characters.name)),
+    db
+      .select({ id: nicheCharacters.characterId })
+      .from(nicheCharacters)
+      .where(eq(nicheCharacters.nicheId, niche.id))
+      .orderBy(asc(nicheCharacters.position)),
+  ]);
+  const defaultCastIds = defaultCast.map((c) => c.id);
   const sceneMinutes = `${niche.sceneCount * 2}–${niche.sceneCount * 4}`;
   const ambient = niche.format === "ambient" ? p.ambient : null;
 
@@ -139,35 +145,21 @@ async function NewProject() {
             </div>
           </Step>
 
-          {/* Ambient shots are about the place; a character can still be set as the niche default. */}
+          {/* Ambient shots are about the place; a cast can still come from the niche default. */}
           {ambient ? (
-            <input type="hidden" name="characterId" value={defaultCharacter ?? ""} />
+            <input type="hidden" name="castIds" value={defaultCastIds.join(",")} />
           ) : (
             <Step n={3} title={p.stepCharacter}>
-              <div className="grid grid-cols-3 gap-3 sm:grid-cols-4 md:grid-cols-5">
-                <CharacterOption value="" checked={defaultCharacter === ""} name={p.noCharacter}>
-                  <UserRoundX className="size-7 text-subtle" />
-                </CharacterOption>
-                {characterRows.map((c) => {
-                  const img = fileUrl(c.referenceImagePath, c.updatedAt);
-                  return (
-                    <CharacterOption
-                      key={c.id}
-                      value={c.id}
-                      checked={defaultCharacter === c.id}
-                      name={c.name}
-                      warn={c.referenceStatus !== "ready" ? { title: p.noReference, short: p.noReferenceShort } : undefined}
-                    >
-                      {img ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img src={img} alt={c.name} className="size-full object-cover" />
-                      ) : (
-                        <span className="text-gold text-2xl font-bold">{c.name.slice(0, 1)}</span>
-                      )}
-                    </CharacterOption>
-                  );
-                })}
-              </div>
+              <CastPicker
+                name="castIds"
+                defaultIds={defaultCastIds}
+                options={characterRows.map((c) => ({
+                  id: c.id,
+                  name: c.name,
+                  imageUrl: fileUrl(c.referenceImagePath, c.updatedAt),
+                  ready: c.referenceStatus === "ready",
+                }))}
+              />
               <p className="text-xs text-subtle">
                 {p.characterHint}{" "}
                 <Link href="/characters/new" className="text-gold-light hover:underline">
@@ -233,32 +225,5 @@ async function NewProject() {
         </aside>
       </form>
     </>
-  );
-}
-
-function CharacterOption({
-  value,
-  checked,
-  name,
-  warn,
-  children,
-}: {
-  value: string;
-  checked: boolean;
-  name: string;
-  warn?: { title: string; short: string };
-  children: ReactNode;
-}) {
-  return (
-    <label className="group flex cursor-pointer flex-col gap-2" title={warn ? warn.title : name}>
-      <input type="radio" name="characterId" value={value} defaultChecked={checked} className="sr-only" />
-      <span className="flex aspect-square items-center justify-center overflow-hidden rounded-2xl frost transition group-hover:bg-[rgb(255_240_214/0.07)] group-has-checked:shadow-[inset_0_0_0_1px_rgb(214_183_131/0.6),0_0_30px_-10px_rgb(214_183_131/0.6)] group-has-checked:shadow-[0_0_24px_-6px_rgb(214_183_131/0.7)]">
-        {children}
-      </span>
-      <span className="truncate text-center text-xs text-muted group-has-checked:text-gold-light">
-        {name}
-        {warn && <span className="block text-[10px] text-warning/80">{warn.short}</span>}
-      </span>
-    </label>
   );
 }

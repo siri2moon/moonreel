@@ -5,7 +5,7 @@ import { DEFAULT_NICHE_SLUGS } from "./default-niches";
 import { nichesDir, writeNicheFile } from "./private-niches";
 
 // Saves every niche you created in the app (all but the sample ones) as a private niche file,
-// so a fresh database can get them back with `pnpm db:seed`. Default characters are left out:
+// so a fresh database can get them back with `pnpm db:seed`. Default casts are left out:
 // their ids only exist in this database.
 async function main() {
   const own = await db.select().from(niches).where(notInArray(niches.slug, [...DEFAULT_NICHE_SLUGS]));

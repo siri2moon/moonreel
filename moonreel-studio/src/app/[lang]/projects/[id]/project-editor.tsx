@@ -6,6 +6,7 @@ import {
   ArrowUp,
   Captions,
   Check,
+  ChevronDown,
   Clapperboard,
   Copy,
   Download,
@@ -19,9 +20,11 @@ import {
   Plus,
   RotateCcw,
   Save,
+  Scissors,
   Sparkles,
   StickyNote,
   Trash,
+  UserRound,
   Video,
   WandSparkles,
   X,
@@ -30,6 +33,7 @@ import Link from "next/link";
 import { createContext, useContext, useEffect, useRef, useState, useTransition, type ReactNode } from "react";
 import {
   approveAndProduce,
+  cutShorts,
   deleteProject,
   editScene,
   regeneratePosts,
@@ -39,8 +43,10 @@ import {
   setReferenceImage,
   retryScenes,
   saveScript,
+  updateShort,
   updateThumbnail,
   type SceneInput,
+  type ShortInput,
   type ThumbnailInput,
 } from "@/app/actions";
 import { ReferenceImageUpload } from "@/components/reference-image-upload";
@@ -56,12 +62,58 @@ const BUSY = new Set(["scripting", "producing", "rendering"]);
 const POLL_MS = 3_000;
 
 type Scene = ProjectView["scenes"][number];
+type Short = ProjectView["shorts"][number];
 
 /**
  * Set for ambient videos, which loop under an uploaded soundtrack: the "narration" is a silent
  * shot note and the video runs as long as the audio.
  */
 const AmbientContext = createContext<{ audioSeconds: number | null } | null>(null);
+
+/** The project's cast, lead first. */
+const CastContext = createContext<ProjectView["cast"]>([]);
+
+/**
+ * Who is on screen in a shot, for casts of two or more (a lone character is in every shot).
+ * Picks keep the cast's order, so the most important character comes first.
+ */
+function SceneCast({ value, onChange }: { value: string[]; onChange: (ids: string[]) => void }) {
+  const { t } = useI18n();
+  const cast = useContext(CastContext);
+  if (cast.length < 2) return null;
+  const toggle = (id: string) =>
+    onChange(cast.map((c) => c.id).filter((c) => (c === id ? !value.includes(id) : value.includes(c))));
+  return (
+    <div className="flex flex-col gap-2">
+      <span className="flex items-center gap-1.5 text-xs text-muted">
+        <UserRound className="size-3.5 text-gold/80" /> {t.project.onScreen}
+      </span>
+      <div className="flex flex-wrap gap-2">
+        {cast.map((c) => {
+          const on = value.includes(c.id);
+          return (
+            <button
+              key={c.id}
+              type="button"
+              onClick={() => toggle(c.id)}
+              aria-pressed={on}
+              className={`flex items-center gap-1.5 rounded-full py-0.5 pr-2.5 pl-0.5 text-xs transition ${on ? "bg-gold/15 text-gold-light shadow-[inset_0_0_0_1px_rgb(214_183_131/0.5)]" : "frost text-subtle hover:text-muted"}`}
+            >
+              {c.referenceUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={c.referenceUrl} alt="" className={`size-5 rounded-full object-cover ${on ? "" : "opacity-50"}`} />
+              ) : (
+                <span className="size-5 rounded-full bg-gold/20" />
+              )}
+              {c.name}
+            </button>
+          );
+        })}
+        {value.length === 0 && <span className="self-center text-xs text-subtle">{t.project.nobodyOnScreen}</span>}
+      </div>
+    </div>
+  );
+}
 
 /** Label and word counter of the narration field; ambient shot notes have no word budget. */
 function NarrationLabel({ text }: { text: string }) {
@@ -80,7 +132,7 @@ function NarrationLabel({ text }: { text: string }) {
 }
 
 function toDraft(scenes: Scene[]): SceneInput[] {
-  return scenes.map(({ narration, visualPrompt, camera }) => ({ narration, visualPrompt, camera }));
+  return scenes.map(({ narration, visualPrompt, camera, characterIds }) => ({ narration, visualPrompt, camera, characterIds }));
 }
 
 /** The script is editable until production has produced anything. */
@@ -107,7 +159,11 @@ export function ProjectEditor({ initial }: { initial: ProjectView }) {
 
   // Poll while a background job is running; pick up the fresh script once it lands.
   useEffect(() => {
-    const background = view.postsStatus === "writing" || view.thumbnailStatus === "drawing";
+    const background =
+      view.postsStatus === "writing" ||
+      view.thumbnailStatus === "drawing" ||
+      view.shortsStatus === "writing" ||
+      view.shorts.some((s) => s.status === "rendering");
     if (!BUSY.has(view.status) && !background) return;
     let alive = true;
     const timer = setInterval(async () => {
@@ -128,7 +184,13 @@ export function ProjectEditor({ initial }: { initial: ProjectView }) {
       alive = false;
       clearInterval(timer);
     };
-  }, [view.id, view.status, view.postsStatus, view.thumbnailStatus]);
+  }, [view.id, view.status, view.postsStatus, view.thumbnailStatus, view.shortsStatus, view.shorts]);
+
+  /** Fetches the project again right away, e.g. after queueing work the poll should pick up. */
+  const refresh = async () => {
+    const res = await fetch(`/api/projects/${view.id}`, { cache: "no-store" });
+    if (res.ok) setView((await res.json()) as ProjectView);
+  };
 
   const run = (fn: () => Promise<unknown>, optimistic?: Partial<ProjectView>) =>
     startTransition(async () => {
@@ -148,99 +210,110 @@ export function ProjectEditor({ initial }: { initial: ProjectView }) {
 
   return (
     <AmbientContext value={ambient}>
-      <div className="flex flex-col gap-8">
-        <Header view={view} onDelete={() => run(() => deleteProject(view.id))} pending={pending} />
-        <Stepper view={view} editable={editable} />
+      <CastContext value={view.cast}>
+        <div className="flex flex-col gap-8">
+          <Header view={view} onDelete={() => run(() => deleteProject(view.id))} pending={pending} />
+          <Stepper view={view} editable={editable} />
 
-        {(view.error || actionError) && <ErrorNote>{actionError ?? view.error}</ErrorNote>}
+          {(view.error || actionError) && <ErrorNote>{actionError ?? view.error}</ErrorNote>}
 
-        {view.status === "scripting" && <Writing />}
+          {view.status === "scripting" && <Writing />}
 
-        {ambient !== null && view.status !== "scripting" && (
-          <div className="grid gap-4 md:grid-cols-[1fr_minmax(0,320px)]">
-            <Card className="flex flex-col gap-3 p-5">
-              <span className="flex items-center gap-2 text-[11px] font-semibold tracking-[0.2em] text-gold uppercase">
-                <Music className="size-3.5" /> {t.project.ambient.soundtrack}
-              </span>
-              <SoundtrackUpload
-                initialUrl={view.audioUrl}
-                disabled={pending || view.status === "rendering"}
-                onUploaded={(key) =>
-                  run(
-                    () => replaceSoundtrack(view.id, key),
-                    view.status === "done" ? { status: "rendering", error: null } : undefined,
-                  )
-                }
-              />
-              <p className="text-xs text-subtle">{t.project.ambient.replaceHint}</p>
-            </Card>
-            <Card className="flex flex-col gap-3 p-5">
-              <span className="flex items-center gap-2 text-[11px] font-semibold tracking-[0.2em] text-gold uppercase">
-                <ImagePlus className="size-3.5" /> {t.project.ambient.reference}
-              </span>
-              <ReferenceImageUpload
-                initialUrl={view.referenceImageUrl}
+          {ambient !== null && view.status !== "scripting" && (
+            <div className="grid gap-4 md:grid-cols-[1fr_minmax(0,320px)]">
+              <Card className="flex flex-col gap-3 p-5">
+                <span className="flex items-center gap-2 text-[11px] font-semibold tracking-[0.2em] text-gold uppercase">
+                  <Music className="size-3.5" /> {t.project.ambient.soundtrack}
+                </span>
+                <SoundtrackUpload
+                  initialUrl={view.audioUrl}
+                  disabled={pending || view.status === "rendering"}
+                  onUploaded={(key) =>
+                    run(
+                      () => replaceSoundtrack(view.id, key),
+                      view.status === "done" ? { status: "rendering", error: null } : undefined,
+                    )
+                  }
+                />
+                <p className="text-xs text-subtle">{t.project.ambient.replaceHint}</p>
+              </Card>
+              <Card className="flex flex-col gap-3 p-5">
+                <span className="flex items-center gap-2 text-[11px] font-semibold tracking-[0.2em] text-gold uppercase">
+                  <ImagePlus className="size-3.5" /> {t.project.ambient.reference}
+                </span>
+                <ReferenceImageUpload
+                  initialUrl={view.referenceImageUrl}
+                  disabled={pending}
+                  onChange={(key) => run(() => setReferenceImage(view.id, key))}
+                />
+                <p className="text-xs text-subtle">{t.project.ambient.referenceHint}</p>
+              </Card>
+            </div>
+          )}
+
+          {view.status === "failed" && view.scenes.length === 0 && (
+            <div>
+              <Button
                 disabled={pending}
-                onChange={(key) => run(() => setReferenceImage(view.id, key))}
-              />
-              <p className="text-xs text-subtle">{t.project.ambient.referenceHint}</p>
-            </Card>
-          </div>
-        )}
+                onClick={() => run(() => regenerateScript(view.id), { status: "scripting", error: null })}
+              >
+                <RotateCcw /> {t.project.rewrite}
+              </Button>
+            </div>
+          )}
 
-        {view.status === "failed" && view.scenes.length === 0 && (
-          <div>
-            <Button
-              disabled={pending}
-              onClick={() => run(() => regenerateScript(view.id), { status: "scripting", error: null })}
-            >
-              <RotateCcw /> {t.project.rewrite}
-            </Button>
-          </div>
-        )}
+          {editable && (
+            <ScriptEditor
+              title={title}
+              setTitle={setTitle}
+              draft={draft}
+              setDraft={setDraft}
+              sceneSeconds={view.niche.sceneSeconds}
+              pending={pending}
+              onSave={() => run(() => saveScript(view.id, title, scenesForAction))}
+              onRegenerate={() => run(() => regenerateScript(view.id), { status: "scripting", error: null })}
+              onApprove={() =>
+                run(() => approveAndProduce(view.id, title, scenesForAction), {
+                  status: "producing",
+                  error: null,
+                })
+              }
+            />
+          )}
 
-        {editable && (
-          <ScriptEditor
-            title={title}
-            setTitle={setTitle}
-            draft={draft}
-            setDraft={setDraft}
-            sceneSeconds={view.niche.sceneSeconds}
-            pending={pending}
-            onSave={() => run(() => saveScript(view.id, title, scenesForAction))}
-            onRegenerate={() => run(() => regenerateScript(view.id), { status: "scripting", error: null })}
-            onApprove={() =>
-              run(() => approveAndProduce(view.id, title, scenesForAction), {
-                status: "producing",
-                error: null,
-              })
-            }
-          />
-        )}
-
-        {!editable && view.scenes.length > 0 && view.status !== "scripting" && (
-          <Production
-            view={view}
-            pending={pending}
-            onRetry={(ids, newKeyframe) =>
-              run(() => retryScenes(view.id, ids, { newKeyframe }), { status: "producing", error: null })
-            }
-            onRender={() => run(() => rerender(view.id), { status: "rendering", error: null })}
-            onRegeneratePosts={() =>
-              run(() => regeneratePosts(view.id), { postsStatus: "writing", postsError: null })
-            }
-            onThumbnail={(input, newImage) =>
-              run(() => updateThumbnail(view.id, input, { newImage }), {
-                thumbnailStatus: "drawing",
-                thumbnailError: null,
-              })
-            }
-            onEdit={(sceneId, input, newKeyframe) =>
-              run(() => editScene(view.id, sceneId, input, { newKeyframe }), { status: "producing", error: null })
-            }
-          />
-        )}
-      </div>
+          {!editable && view.scenes.length > 0 && view.status !== "scripting" && (
+            <Production
+              view={view}
+              pending={pending}
+              onRetry={(ids, newKeyframe) =>
+                run(() => retryScenes(view.id, ids, { newKeyframe }), { status: "producing", error: null })
+              }
+              onRender={() => run(() => rerender(view.id), { status: "rendering", error: null })}
+              onRegeneratePosts={() =>
+                run(() => regeneratePosts(view.id), { postsStatus: "writing", postsError: null })
+              }
+              onThumbnail={(input, newImage) =>
+                run(() => updateThumbnail(view.id, input, { newImage }), {
+                  thumbnailStatus: "drawing",
+                  thumbnailError: null,
+                })
+              }
+              onCutShorts={() =>
+                run(() => cutShorts(view.id), { shortsStatus: "writing", shortsError: null })
+              }
+              onShort={(shortId, input) =>
+                run(async () => {
+                  await updateShort(view.id, shortId, input);
+                  await refresh();
+                })
+              }
+              onEdit={(sceneId, input, newKeyframe) =>
+                run(() => editScene(view.id, sceneId, input, { newKeyframe }), { status: "producing", error: null })
+              }
+            />
+          )}
+        </div>
+      </CastContext>
     </AmbientContext>
   );
 }
@@ -266,17 +339,17 @@ function Header({
           <div className="flex flex-wrap items-center gap-2 text-xs text-muted">
             <StatusBadge status={view.status} />
             <span className="rounded-md frost px-2 py-0.5 font-mono">{view.aspectRatio}</span>
-            {view.character && (
-              <span className="flex items-center gap-1.5 rounded-full frost py-0.5 pr-2.5 pl-0.5">
-                {view.character.referenceUrl ? (
+            {view.cast.map((c) => (
+              <span key={c.id} className="flex items-center gap-1.5 rounded-full frost py-0.5 pr-2.5 pl-0.5">
+                {c.referenceUrl ? (
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img src={view.character.referenceUrl} alt="" className="size-5 rounded-full object-cover" />
+                  <img src={c.referenceUrl} alt="" className="size-5 rounded-full object-cover" />
                 ) : (
                   <span className="size-5 rounded-full bg-gold/20" />
                 )}
-                {view.character.name}
+                {c.name}
               </span>
-            )}
+            ))}
           </div>
           <p className="max-w-3xl text-sm text-subtle">
             <span className="text-muted">{t.project.topic}</span> {view.topic}
@@ -367,6 +440,79 @@ function Writing() {
   return <Working icon={<WandSparkles className="size-6" />} title={t.project.writingTitle} body={t.project.writingBody} />;
 }
 
+/**
+ * A panel of the project page whose body folds away under its header. Every section starts
+ * open; a folded body is only hidden, so drafts and video positions inside it survive.
+ */
+function Section({
+  icon,
+  eyebrow,
+  heading,
+  sub,
+  actions,
+  bare = false,
+  className = "",
+  children,
+}: {
+  icon?: ReactNode;
+  eyebrow?: string;
+  heading: string;
+  sub?: ReactNode;
+  actions?: ReactNode;
+  /** No card around it, for sections that already sit on the page background. */
+  bare?: boolean;
+  className?: string;
+  children: ReactNode;
+}) {
+  const { t } = useI18n();
+  const [open, setOpen] = useState(true);
+  const toggle = () => setOpen((o) => !o);
+  const header = (
+    <div className="flex flex-wrap items-start justify-between gap-3">
+      <button type="button" onClick={toggle} aria-expanded={open} className="flex min-w-0 flex-col gap-1 text-left">
+        {eyebrow && (
+          <span className="flex items-center gap-2 text-[11px] font-semibold tracking-[0.2em] text-gold uppercase [&_svg]:size-3.5">
+            {icon} {eyebrow}
+          </span>
+        )}
+        <h2 className="text-lg font-semibold tracking-tight">{heading}</h2>
+        {sub}
+      </button>
+      <div className="flex flex-wrap items-center gap-2">
+        {open && actions}
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={toggle}
+          aria-expanded={open}
+          title={open ? t.project.collapse : t.project.expand}
+        >
+          <ChevronDown className={`transition-transform ${open ? "" : "-rotate-90"}`} />
+        </Button>
+      </div>
+    </div>
+  );
+  const body = (
+    <div hidden={!open} className="flex flex-col gap-5">
+      {children}
+    </div>
+  );
+  if (bare) {
+    return (
+      <section className={`flex flex-col gap-5 ${className}`}>
+        {header}
+        {body}
+      </section>
+    );
+  }
+  return (
+    <Card className={`flex flex-col gap-5 p-5 md:p-8 ${className}`}>
+      {header}
+      {body}
+    </Card>
+  );
+}
+
 /** A background job is running; the page polls and swaps this out when it finishes. */
 function Working({ icon, title, body }: { icon: ReactNode; title: string; body: string }) {
   return (
@@ -400,6 +546,7 @@ function ScriptEditor(props: {
   const { title, setTitle, draft, setDraft, sceneSeconds, pending } = props;
   const { t } = useI18n();
   const ambient = useContext(AmbientContext);
+  const cast = useContext(CastContext);
 
   const update = (i: number, patch: Partial<SceneInput>) =>
     setDraft((d) => d.map((s, j) => (j === i ? { ...s, ...patch } : s)));
@@ -412,7 +559,11 @@ function ScriptEditor(props: {
       return next;
     });
   const remove = (i: number) => setDraft((d) => d.filter((_, j) => j !== i));
-  const add = () => setDraft((d) => [...d, { narration: "", visualPrompt: "", camera: "static medium shot" }]);
+  const add = () =>
+    setDraft((d) => [
+      ...d,
+      { narration: "", visualPrompt: "", camera: "static medium shot", characterIds: cast.slice(0, 1).map((c) => c.id) },
+    ]);
 
   return (
     <div className="flex flex-col gap-5">
@@ -519,6 +670,7 @@ function ScriptEditor(props: {
                     />
                   </label>
                 </div>
+                <SceneCast value={scene.characterIds ?? []} onChange={(characterIds) => update(i, { characterIds })} />
               </div>
             </Card>
           );
@@ -543,6 +695,8 @@ function Production({
   onRender,
   onRegeneratePosts,
   onThumbnail,
+  onCutShorts,
+  onShort,
   onEdit,
 }: {
   view: ProjectView;
@@ -551,6 +705,8 @@ function Production({
   onRender: () => void;
   onRegeneratePosts: () => void;
   onThumbnail: (input: ThumbnailInput, newImage: boolean) => void;
+  onCutShorts: () => void;
+  onShort: (shortId: string, input: ShortInput) => void;
   onEdit: (sceneId: string, input: SceneInput, newKeyframe: boolean) => void;
 }) {
   const [editing, setEditing] = useState<Scene | null>(null);
@@ -573,7 +729,12 @@ function Production({
       )}
 
       {view.finalVideoUrl && view.status === "done" && (
-        <Card className="gold-ring relative overflow-hidden p-5 md:p-8">
+        <Section
+          icon={<Sparkles />}
+          eyebrow={t.project.final}
+          heading={t.project.finalTitle}
+          className="gold-ring relative overflow-hidden"
+        >
           <div className="pointer-events-none absolute -top-24 -left-24 size-80 rounded-full bg-gold/15 blur-[100px]" />
           <div className={`relative flex flex-col gap-8 ${vertical ? "md:flex-row md:items-center" : ""}`}>
             <video
@@ -584,10 +745,6 @@ function Production({
               }`}
             />
             <div className="flex flex-col gap-4">
-              <span className="flex items-center gap-2 text-[11px] font-semibold tracking-[0.2em] text-gold uppercase">
-                <Sparkles className="size-3.5" /> {t.project.final}
-              </span>
-              <h2 className="text-2xl font-bold tracking-tight">{t.project.finalTitle}</h2>
               <p className="text-sm text-muted">
                 {view.niche.format === "ambient"
                   ? t.project.ambient.finalBody(total, view.aspectRatio)
@@ -608,23 +765,25 @@ function Production({
               </Button>
             </div>
           </div>
-        </Card>
+        </Section>
       )}
 
       {view.status === "done" && (
         <>
           <ThumbnailPanel view={view} pending={pending} onSubmit={onThumbnail} />
           <PostsPanel view={view} pending={pending} onRegenerate={onRegeneratePosts} />
+          {view.niche.format !== "ambient" && (
+            <ShortsPanel view={view} pending={pending} onCut={onCutShorts} onSave={onShort} />
+          )}
         </>
       )}
 
-      <section className="flex flex-col gap-5">
-        <div className="flex flex-wrap items-end justify-between gap-3">
-          <div className="flex flex-col gap-1">
-            <h2 className="text-lg font-semibold tracking-tight">{t.project.productionTitle}</h2>
-            <span className="text-xs text-muted">{t.project.progress(done, total, percent)}</span>
-          </div>
-          <div className="flex gap-2">
+      <Section
+        bare
+        heading={t.project.productionTitle}
+        sub={<span className="text-xs text-muted">{t.project.progress(done, total, percent)}</span>}
+        actions={
+          <>
             {failed.length > 0 && (
               <Button variant="secondary" disabled={pending} onClick={() => onRetry(failed.map((s) => s.id), false)}>
                 <RotateCcw /> {t.project.retryFailed(failed.length)}
@@ -635,8 +794,9 @@ function Production({
                 <Film /> {t.project.render}
               </Button>
             )}
-          </div>
-        </div>
+          </>
+        }
+      >
 
         <div className="h-1.5 overflow-hidden rounded-full frost">
           <div
@@ -659,7 +819,7 @@ function Production({
             />
           ))}
         </div>
-      </section>
+      </Section>
 
       {editing && (
         <SceneEditDialog
@@ -698,13 +858,7 @@ function ThumbnailPanel({
   const withKeyframes = view.scenes.filter((s) => s.keyframeUrl);
 
   return (
-    <Card className="flex flex-col gap-5 p-5 md:p-8">
-      <div className="flex flex-col gap-1">
-        <span className="flex items-center gap-2 text-[11px] font-semibold tracking-[0.2em] text-gold uppercase">
-          <ImageIcon className="size-3.5" /> {tt.eyebrow}
-        </span>
-        <h2 className="text-lg font-semibold tracking-tight">{tt.heading}</h2>
-      </div>
+    <Section icon={<ImageIcon />} eyebrow={tt.eyebrow} heading={tt.heading}>
 
       {!spec && (
         <p className="text-sm text-muted">
@@ -800,7 +954,7 @@ function ThumbnailPanel({
           </div>
         </div>
       )}
-    </Card>
+    </Section>
   );
 }
 
@@ -859,20 +1013,18 @@ function PostsPanel({
   }
 
   return (
-    <Card className="flex flex-col gap-5 p-5 md:p-8">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="flex flex-col gap-1">
-          <span className="flex items-center gap-2 text-[11px] font-semibold tracking-[0.2em] text-gold uppercase">
-            <Megaphone className="size-3.5" /> {t.project.posts.eyebrow}
-          </span>
-          <h2 className="text-lg font-semibold tracking-tight">{t.project.posts.heading}</h2>
-        </div>
-        {!writing && (
+    <Section
+      icon={<Megaphone />}
+      eyebrow={t.project.posts.eyebrow}
+      heading={t.project.posts.heading}
+      actions={
+        !writing && (
           <Button variant="ghost" size="sm" disabled={pending} onClick={onRegenerate}>
             <RotateCcw /> {posts ? t.project.posts.rewrite : t.project.posts.write}
           </Button>
-        )}
-      </div>
+        )
+      }
+    >
 
       {writing && <p className="animate-pulse text-sm text-muted">{t.project.posts.writing}</p>}
       {postsStatus === "failed" && view.postsError && <ErrorNote>{view.postsError}</ErrorNote>}
@@ -902,7 +1054,213 @@ function PostsPanel({
           <p className="text-xs text-subtle">{t.project.posts.aiLabel}</p>
         </>
       )}
-    </Card>
+    </Section>
+  );
+}
+
+function ShortsPanel({
+  view,
+  pending,
+  onCut,
+  onSave,
+}: {
+  view: ProjectView;
+  pending: boolean;
+  onCut: () => void;
+  onSave: (shortId: string, input: ShortInput) => void;
+}) {
+  const { t } = useI18n();
+  const ts = t.project.shorts;
+  const picking = view.shortsStatus === "writing";
+  const hasShorts = view.shorts.length > 0;
+
+  return (
+    <Section
+      icon={<Scissors />}
+      eyebrow={ts.eyebrow}
+      heading={ts.heading}
+      actions={
+        !picking && (
+          <Button variant={hasShorts ? "ghost" : "primary"} size={hasShorts ? "sm" : "md"} disabled={pending} onClick={onCut}>
+            {hasShorts ? <RotateCcw /> : <Scissors />} {hasShorts ? ts.recut : ts.cut}
+          </Button>
+        )
+      }
+    >
+      {!hasShorts && <p className="max-w-2xl text-sm text-muted">{ts.body}</p>}
+
+      {picking && <p className="animate-pulse text-sm text-muted">{ts.picking}</p>}
+      {view.shortsStatus === "failed" && view.shortsError && <ErrorNote>{view.shortsError}</ErrorNote>}
+
+      {hasShorts && (
+        <>
+          <div className={`grid gap-6 md:grid-cols-2 xl:grid-cols-3 ${picking ? "opacity-50" : ""}`}>
+            {view.shorts.map((short) => (
+              <ShortCard
+                key={short.id}
+                short={short}
+                view={view}
+                pending={pending || picking}
+                onSave={(input) => onSave(short.id, input)}
+              />
+            ))}
+          </div>
+          <p className="text-xs text-subtle">{ts.relatedHint}</p>
+        </>
+      )}
+    </Section>
+  );
+}
+
+function ShortCard({
+  short,
+  view,
+  pending,
+  onSave,
+}: {
+  short: Short;
+  view: ProjectView;
+  pending: boolean;
+  onSave: (input: ShortInput) => void;
+}) {
+  const { t } = useI18n();
+  const ts = t.project.shorts;
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState<ShortInput>({
+    hook: short.hook,
+    title: short.title,
+    description: short.description,
+    fromScene: short.fromScene,
+    toScene: short.toScene,
+  });
+  const rendering = short.status === "rendering";
+  const from = Number(draft.fromScene);
+  const to = Number(draft.toScene);
+  const recut =
+    draft.hook.trim() !== short.hook || from !== short.fromScene || to !== short.toScene || short.status === "failed";
+  const valid = draft.hook.trim() !== "" && draft.title.trim() !== "" && to >= from;
+  const scenes = (
+    <span className="text-xs text-subtle">
+      {ts.scenes(short.fromScene + 1, short.toScene + 1, (short.toScene - short.fromScene + 1) * view.niche.sceneSeconds)}
+    </span>
+  );
+  const sceneSelect = (key: "fromScene" | "toScene") => (
+    <label className="flex flex-1 flex-col gap-1.5">
+      <span className="text-xs font-medium text-muted">{key === "fromScene" ? ts.fromScene : ts.toScene}</span>
+      <select
+        value={String(draft[key])}
+        onChange={(e) => setDraft({ ...draft, [key]: Number(e.target.value) })}
+        className={inputClass}
+      >
+        {view.scenes.map((s) => (
+          <option key={s.id} value={s.index}>
+            {s.index + 1}. {s.narration.slice(0, 40)}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="relative mx-auto aspect-[9/16] w-full max-w-[280px] overflow-hidden rounded-2xl bg-black ring-1 ring-gold/25">
+        {short.videoUrl && (
+          <video
+            src={short.videoUrl}
+            controls
+            preload="metadata"
+            className={`size-full object-contain ${rendering ? "opacity-30" : ""}`}
+          />
+        )}
+        {rendering && (
+          <span className="absolute inset-0 flex animate-pulse items-center justify-center px-4 text-center text-sm text-muted">
+            {ts.rendering}
+          </span>
+        )}
+      </div>
+      {short.status === "failed" && short.error && <ErrorNote>{short.error}</ErrorNote>}
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        {scenes}
+        <div className="flex gap-2">
+          {short.videoUrl && !rendering && (
+            <a
+              href={`${short.videoUrl}&download=${view.fileSlug}-short-${short.index + 1}`}
+              className={buttonClass("primary", "sm")}
+            >
+              <Download /> {ts.download}
+            </a>
+          )}
+          {!editing && (
+            <Button variant="ghost" size="sm" disabled={pending} onClick={() => setEditing(true)}>
+              <Pencil /> {ts.edit}
+            </Button>
+          )}
+        </div>
+      </div>
+
+      {editing ? (
+        <div className="flex flex-col gap-3">
+          <label className="flex flex-col gap-1.5">
+            <span className="text-xs font-medium text-muted">{ts.hook}</span>
+            <input
+              value={draft.hook}
+              maxLength={80}
+              onChange={(e) => setDraft({ ...draft, hook: e.target.value })}
+              className={inputClass}
+            />
+            <span className="text-xs text-subtle">{ts.hookHint}</span>
+          </label>
+          <div className="flex gap-2">
+            {sceneSelect("fromScene")}
+            {sceneSelect("toScene")}
+          </div>
+          <label className="flex flex-col gap-1.5">
+            <span className="text-xs font-medium text-muted">{ts.title}</span>
+            <input
+              value={draft.title}
+              maxLength={100}
+              onChange={(e) => setDraft({ ...draft, title: e.target.value })}
+              className={inputClass}
+            />
+          </label>
+          <label className="flex flex-col gap-1.5">
+            <span className="text-xs font-medium text-muted">{ts.description}</span>
+            <textarea
+              rows={4}
+              value={draft.description}
+              onChange={(e) => setDraft({ ...draft, description: e.target.value })}
+              className={inputClass}
+            />
+          </label>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              size="sm"
+              disabled={pending || !valid}
+              onClick={() => {
+                onSave(draft);
+                setEditing(false);
+              }}
+            >
+              {recut ? <Scissors /> : <Check />} {recut ? ts.save : ts.saveText}
+            </Button>
+            <Button variant="ghost" size="sm" onClick={() => setEditing(false)}>
+              {ts.cancel}
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <div className="flex flex-col gap-1.5">
+          <span className="text-xs font-medium text-muted">{ts.hook}</span>
+          <p className="text-sm font-semibold">{short.hook.replace(/\*/g, "")}</p>
+        </div>
+      )}
+      {!editing && (
+        <>
+          <CopyField label={ts.title} text={short.title} limit={100} />
+          <CopyField label={ts.description} text={short.description} limit={5000} />
+        </>
+      )}
+    </div>
   );
 }
 
@@ -1039,12 +1397,16 @@ function SceneEditDialog({
     narration: scene.narration,
     visualPrompt: scene.visualPrompt,
     camera: scene.camera,
+    characterIds: scene.characterIds,
   });
   useEffect(() => {
     ref.current?.showModal();
   }, []);
 
-  const visualChanged = draft.visualPrompt.trim() !== scene.visualPrompt.trim();
+  // A new cast in the shot needs a new first frame, just like a new visual.
+  const visualChanged =
+    draft.visualPrompt.trim() !== scene.visualPrompt.trim() ||
+    (draft.characterIds ?? []).join() !== scene.characterIds.join();
   const valid = draft.narration.trim() !== "" && draft.visualPrompt.trim() !== "";
   const submit = (newKeyframe: boolean) => {
     onSubmit(draft, newKeyframe);
@@ -1098,6 +1460,7 @@ function SceneEditDialog({
             className={`${inputClass} text-[13px]`}
           />
         </label>
+        <SceneCast value={draft.characterIds ?? []} onChange={(characterIds) => setDraft((d) => ({ ...d, characterIds }))} />
 
         {visualChanged && <p className="text-xs text-gold-light">{t.project.visualChanged}</p>}
 

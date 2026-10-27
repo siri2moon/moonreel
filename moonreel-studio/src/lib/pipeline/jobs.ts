@@ -1,9 +1,12 @@
 import { and, asc, eq, sql } from "drizzle-orm";
+import sharp from "sharp";
 import { db } from "@/db";
 import {
   characters,
+  projectCharacters,
   projects,
   scenes,
+  shorts,
   type Character,
   type SocialPosts,
   type ThumbnailSpec,
@@ -12,7 +15,7 @@ import { getProvider } from "@/lib/providers";
 import { gatewayChat, gatewayConfigured } from "@/lib/providers/gateway";
 import { MuseRefusedError } from "@/lib/providers/muse2api";
 import { REFUSED_PREFIX } from "@/lib/scene-errors";
-import { enqueuePosts, enqueueRender, enqueueScenes, enqueueThumbnail } from "@/lib/queue";
+import { enqueuePosts, enqueueRender, enqueueScenes, enqueueShortRenders, enqueueThumbnail } from "@/lib/queue";
 import { readFileByKey, resolveKey, saveFile, toDataUrl } from "@/lib/storage";
 import type { z } from "zod";
 import {
@@ -24,8 +27,10 @@ import {
   buildRepairPrompt,
   buildScriptPartPrompt,
   buildScriptPrompt,
+  buildShortsPrompt,
   buildThumbnailPrompt,
   buildVideoPrompt,
+  MAX_CHARACTERS_PER_SCENE,
   outlineSchema,
   parseReply,
   POSTS_SHAPE,
@@ -35,8 +40,12 @@ import {
   scenesSchema,
   scriptSchema,
   type Script,
+  SHORTS_SHAPE,
+  shortsPlanSchema,
+  type ShortsPlan,
 } from "./prompts";
 import { cameraStillness, mediaDuration, renderFinal, renderLoop } from "./render";
+import { captionCues, renderShort, SHORT_MAX_SECONDS, SHORT_MIN_SECONDS } from "./shorts";
 import { composeThumbnail, THUMBNAIL_STYLES, type ThumbnailStyle } from "./thumbnail";
 import { synthesizeNarration } from "./voiceover";
 
@@ -58,17 +67,82 @@ async function withRetry<T>(label: string, fn: () => Promise<T>, attempts = 2): 
   throw lastErr;
 }
 
-async function characterRef(character: Character | null) {
-  if (character?.referenceStatus !== "ready" || !character.referenceImagePath) return undefined;
-  return toDataUrl(character.referenceImagePath);
+/** Loads a project's cast, lead first, with every relational query that needs it. */
+const withCast = {
+  cast: { orderBy: [asc(projectCharacters.position)], with: { character: true as const } },
+};
+
+function castOf(project: { cast: { character: Character }[] }) {
+  return project.cast.map((c) => c.character);
 }
 
 /**
- * Muse takes one reference image. A photo of the place, when the project has one, wins over
- * the character sheet; the character is then described in words only.
+ * Who is on screen in a shot. A single-character project shows its character everywhere, as
+ * it always has; a larger cast shows the members the script picked for the shot.
  */
-async function imageReference(project: { referenceImagePath: string | null }, character: Character | null) {
-  return project.referenceImagePath ? toDataUrl(project.referenceImagePath) : characterRef(character);
+function sceneCharacters(scene: { characterIds: string[] }, cast: Character[]) {
+  if (cast.length === 1) return cast;
+  const byId = new Map(cast.map((c) => [c.id, c]));
+  return scene.characterIds
+    .map((id) => byId.get(id))
+    .filter((c): c is Character => !!c)
+    .slice(0, MAX_CHARACTERS_PER_SCENE);
+}
+
+const BOARD_TILE_PX = 768;
+const BOARD_GAP_PX = 48;
+const BOARD_BACKGROUND = { r: 232, g: 232, b: 232 };
+
+/**
+ * Muse takes one reference image, so several characters go in as one sheet: their reference
+ * images side by side, left to right in `characters` order. `board` lists who made it in.
+ */
+async function castReference(characters: Character[]) {
+  const ready = characters.filter((c) => c.referenceStatus === "ready" && c.referenceImagePath);
+  if (ready.length === 0) return { image: undefined, board: [] };
+  if (ready.length === 1) return { image: await toDataUrl(ready[0].referenceImagePath!), board: [ready[0].name] };
+  // File reads and image resizes, not DB queries.
+  const tiles = await Promise.all(
+    ready.map(async (c) =>
+      sharp(await readFileByKey(c.referenceImagePath!))
+        .resize(BOARD_TILE_PX, BOARD_TILE_PX, { fit: "contain", background: BOARD_BACKGROUND })
+        .toBuffer(),
+    ),
+  );
+  const sheet = await sharp({
+    create: {
+      width: ready.length * BOARD_TILE_PX + (ready.length - 1) * BOARD_GAP_PX,
+      height: BOARD_TILE_PX,
+      channels: 3,
+      background: BOARD_BACKGROUND,
+    },
+  })
+    .composite(tiles.map((input, i) => ({ input, left: i * (BOARD_TILE_PX + BOARD_GAP_PX), top: 0 })))
+    .jpeg({ quality: 90 })
+    .toBuffer();
+  return { image: `data:image/jpeg;base64,${sheet.toString("base64")}`, board: ready.map((c) => c.name) };
+}
+
+/**
+ * The reference image for a keyframe or thumbnail. A photo of the place, when the project has
+ * one, wins over the characters, who are then described in words only.
+ */
+async function imageReference(project: { referenceImagePath: string | null }, characters: Character[]) {
+  if (project.referenceImagePath) return { image: await toDataUrl(project.referenceImagePath), board: [] };
+  return castReference(characters);
+}
+
+/** Maps the script's character names to the cast's ids; a lone character is in every shot. */
+function castIdsFor(names: string[], cast: Character[]) {
+  if (cast.length === 1) return [cast[0].id];
+  const ids = names
+    .map((name) => {
+      const n = name.trim().toLowerCase();
+      return cast.find((c) => c.name.toLowerCase() === n) ?? cast.find((c) => n.includes(c.name.toLowerCase()));
+    })
+    .filter((c): c is Character => !!c)
+    .map((c) => c.id);
+  return [...new Set(ids)].slice(0, MAX_CHARACTERS_PER_SCENE);
 }
 
 /**
@@ -99,8 +173,9 @@ async function chatJson<T>(
   });
 }
 
-const SCRIPT_SHAPE = '{"title": string, "scenes": [{"narration": string, "visualPrompt": string, "camera": string}]}';
-const SCENES_SHAPE = '{"scenes": [{"narration": string, "visualPrompt": string, "camera": string}]}';
+const SCENE_FIELDS = '{"narration": string, "visualPrompt": string, "camera": string, "characters": [string]}';
+const SCRIPT_SHAPE = `{"title": string, "scenes": [${SCENE_FIELDS}]}`;
+const SCENES_SHAPE = `{"scenes": [${SCENE_FIELDS}]}`;
 const OUTLINE_SHAPE = '{"title": string, "beats": [string]}';
 
 async function writeScript(input: Parameters<typeof buildScriptPrompt>[0]): Promise<Script> {
@@ -139,14 +214,15 @@ async function writeScript(input: Parameters<typeof buildScriptPrompt>[0]): Prom
 export async function generateScript(projectId: string) {
   const project = await db.query.projects.findFirst({
     where: eq(projects.id, projectId),
-    with: { niche: true, character: true },
+    with: { niche: true, ...withCast },
   });
   if (!project) return;
+  const cast = castOf(project);
 
   try {
     const script = await writeScript({
       niche: project.niche,
-      character: project.character,
+      cast,
       topic: project.topic,
       aspectRatio: project.aspectRatio,
       placeReference: !!project.referenceImagePath,
@@ -161,6 +237,7 @@ export async function generateScript(projectId: string) {
           narration: s.narration,
           visualPrompt: s.visualPrompt,
           camera: s.camera,
+          characterIds: castIdsFor(s.characters, cast),
         })),
       );
       await tx
@@ -225,13 +302,15 @@ async function sharedKeyframe(projectId: string): Promise<string | "wait"> {
 export async function produceScene(sceneId: string) {
   const scene = await db.query.scenes.findFirst({
     where: eq(scenes.id, sceneId),
-    with: { project: { with: { niche: true, character: true } } },
+    with: { project: { with: { niche: true, ...withCast } } },
   });
   // A job can be redelivered after a worker restart; never redo a finished scene.
   if (!scene || scene.status === "done" || scene.project.status !== "producing") return;
 
   const { project } = scene;
-  const { niche, character } = project;
+  const { niche } = project;
+  const cast = castOf(project);
+  const onScreen = sceneCharacters(scene, cast);
   const provider = getProvider();
   const prefix = `projects/${project.id}/scenes/${String(scene.index).padStart(2, "0")}`;
 
@@ -248,12 +327,18 @@ export async function produceScene(sceneId: string) {
     }
     if (!keyframePath) {
       await db.update(scenes).set({ status: "keyframe", error: null }).where(eq(scenes.id, sceneId));
-      const reference = await imageReference(project, character);
+      const reference = await imageReference(project, onScreen);
       const image = await withRetry("keyframe", () =>
         provider.generateImage({
-          prompt: buildKeyframePrompt({ scene, niche, character, placeReference: !!project.referenceImagePath }),
+          prompt: buildKeyframePrompt({
+            scene,
+            niche,
+            characters: onScreen,
+            board: reference.board,
+            placeReference: !!project.referenceImagePath,
+          }),
           aspectRatio: project.aspectRatio,
-          referenceImage: reference,
+          referenceImage: reference.image,
         }),
       );
       keyframePath = await saveFile(`${prefix}-keyframe${image.ext}`, image.data);
@@ -265,7 +350,12 @@ export async function produceScene(sceneId: string) {
     const makeClip = async () => {
       const video = await withRetry("video", () =>
         provider.generateVideo({
-          prompt: buildVideoPrompt({ scene, niche, character }),
+          prompt: buildVideoPrompt({
+            scene,
+            niche,
+            characters: onScreen,
+            speaker: cast.length === 1 ? cast[0] : undefined,
+          }),
           aspectRatio: project.aspectRatio,
           durationSeconds: niche.sceneSeconds,
           firstFrame,
@@ -386,16 +476,21 @@ function srtSeconds(m: RegExpMatchArray) {
   return Number(m[1]) * 3600 + Number(m[2]) * 60 + Number(m[3]) + Number(m[4]) / 1000;
 }
 
-/** Scene start times and total length, read from the .srt the render wrote (one cue per scene). */
-async function sceneTimes(captionsPath: string | null, sceneCount: number, sceneSeconds: number) {
+/** Each scene's start and end in the final video, read from the .srt the render wrote (one cue per scene). */
+async function sceneSpans(captionsPath: string | null, sceneCount: number, sceneSeconds: number) {
   const srt = captionsPath ? await readFileByKey(captionsPath).then(String, () => "") : "";
   const starts = [...srt.matchAll(SRT_START)].map(srtSeconds);
   const ends = [...srt.matchAll(SRT_END)].map(srtSeconds);
-  if (starts.length === sceneCount && ends.length > 0) return { starts, total: ends[ends.length - 1] };
-  return {
-    starts: Array.from({ length: sceneCount }, (_, i) => i * sceneSeconds),
-    total: sceneCount * sceneSeconds,
-  };
+  if (starts.length === sceneCount && ends.length === sceneCount) {
+    return starts.map((start, i) => ({ start, end: ends[i] }));
+  }
+  return Array.from({ length: sceneCount }, (_, i) => ({ start: i * sceneSeconds, end: (i + 1) * sceneSeconds }));
+}
+
+/** Scene start times and total length of the final video. */
+async function sceneTimes(captionsPath: string | null, sceneCount: number, sceneSeconds: number) {
+  const spans = await sceneSpans(captionsPath, sceneCount, sceneSeconds);
+  return { starts: spans.map((s) => s.start), total: spans.at(-1)?.end ?? 0 };
 }
 
 // YouTube only shows chapters when the first starts at 0:00, there are at least 3 and each
@@ -528,10 +623,11 @@ function thumbnailStyle(value: string): ThumbnailStyle {
 export async function generateThumbnail(projectId: string) {
   const project = await db.query.projects.findFirst({
     where: eq(projects.id, projectId),
-    with: { niche: true, character: true, scenes: { orderBy: [asc(scenes.index)] } },
+    with: { niche: true, ...withCast, scenes: { orderBy: [asc(scenes.index)] } },
   });
   if (!project?.thumbnail) return;
-  const { niche, character } = project;
+  const { niche } = project;
+  const featured = castOf(project).slice(0, MAX_CHARACTERS_PER_SCENE);
   const spec = { ...project.thumbnail };
 
   await db
@@ -549,18 +645,19 @@ export async function generateThumbnail(projectId: string) {
         spec.basePath = keyframeOf(spec.scene) ?? null;
       } else {
         try {
-          const reference = await imageReference(project, character);
+          const reference = await imageReference(project, featured);
           const image = await withRetry("thumbnail", () =>
             getProvider().generateImage({
               prompt: buildThumbnailPrompt({
                 niche,
-                character,
+                cast: featured,
+                board: reference.board,
                 prompt: spec.prompt,
                 aspectRatio: project.aspectRatio,
                 placeReference: !!project.referenceImagePath,
               }),
               aspectRatio: project.aspectRatio,
-              referenceImage: reference,
+              referenceImage: reference.image,
             }),
           );
           spec.basePath = await saveFile(`projects/${projectId}/thumbnail-base${image.ext}`, image.data);
@@ -593,5 +690,132 @@ export async function generateThumbnail(projectId: string) {
       .update(projects)
       .set({ thumbnail: spec, thumbnailStatus: "failed", thumbnailError: message(err) })
       .where(eq(projects.id, projectId));
+  }
+}
+
+const SHORTS_PER_VIDEO = 3;
+
+/**
+ * Turns the planner's picks into valid scene runs: 0-based, inside the video, no longer than a
+ * Short may be (trimmed from the end), not overlapping an earlier pick.
+ */
+function normalizeShorts(plan: ShortsPlan["shorts"], spans: { start: number; end: number }[]) {
+  const last = spans.length - 1;
+  const kept: (ShortsPlan["shorts"][number] & { from: number; to: number })[] = [];
+  for (const pick of plan) {
+    const from = Math.min(Math.max(pick.fromScene - 1, 0), last);
+    let to = Math.min(Math.max(pick.toScene - 1, from), last);
+    while (to > from && spans[to].end - spans[from].start > SHORT_MAX_SECONDS) to--;
+    if (kept.some((k) => from <= k.to && to >= k.from)) continue;
+    kept.push({ ...pick, from, to });
+    if (kept.length === SHORTS_PER_VIDEO) break;
+  }
+  return kept;
+}
+
+/** Picks the best moments of a finished video and queues one vertical Short for each. */
+export async function planShorts(projectId: string) {
+  const project = await db.query.projects.findFirst({
+    where: eq(projects.id, projectId),
+    with: { niche: true, scenes: { orderBy: [asc(scenes.index)] } },
+  });
+  if (!project || project.status !== "done" || !project.finalVideoPath) return;
+
+  try {
+    const spans = await sceneSpans(project.captionsPath, project.scenes.length, project.niche.sceneSeconds);
+    const plan = await chatJson(
+      "shorts",
+      buildShortsPrompt({
+        niche: project.niche,
+        title: project.posts?.youtube.title ?? project.title,
+        topic: project.topic,
+        scenes: project.scenes.map((s, i) => ({
+          narration: s.narration,
+          start: spans[i].start,
+          seconds: spans[i].end - spans[i].start,
+        })),
+        count: SHORTS_PER_VIDEO,
+        minSeconds: SHORT_MIN_SECONDS,
+        maxSeconds: SHORT_MAX_SECONDS,
+      }),
+      shortsPlanSchema,
+      SHORTS_SHAPE,
+      (p) => {
+        if (normalizeShorts(p.shorts, spans).length === 0) throw new Error("no usable Short in the plan");
+      },
+    );
+    const picks = normalizeShorts(plan.shorts, spans);
+    const inserted = await db.transaction(async (tx) => {
+      await tx.delete(shorts).where(eq(shorts.projectId, projectId));
+      const rows = await tx
+        .insert(shorts)
+        .values(
+          picks.map((p, index) => ({
+            projectId,
+            index,
+            fromScene: p.from,
+            toScene: p.to,
+            hook: p.hook.trim(),
+            title: p.title.trim(),
+            description: p.description.trim(),
+          })),
+        )
+        .returning({ id: shorts.id });
+      await tx
+        .update(projects)
+        .set({ shortsStatus: "ready", shortsError: null })
+        .where(eq(projects.id, projectId));
+      return rows;
+    });
+    await enqueueShortRenders(inserted.map((r) => r.id));
+  } catch (err) {
+    await db
+      .update(projects)
+      .set({ shortsStatus: "failed", shortsError: message(err) })
+      .where(eq(projects.id, projectId));
+  }
+}
+
+/** Cuts one Short out of the final video with its hook and burned-in captions. */
+export async function renderShortClip(shortId: string) {
+  const short = await db.query.shorts.findFirst({
+    where: eq(shorts.id, shortId),
+    with: { project: { with: { niche: true, scenes: { orderBy: [asc(scenes.index)] } } } },
+  });
+  if (!short) return;
+  const { project } = short;
+
+  await db.update(shorts).set({ status: "rendering", error: null }).where(eq(shorts.id, shortId));
+  try {
+    if (!project.finalVideoPath) throw new Error("The video has not been rendered yet");
+    const spans = await sceneSpans(project.captionsPath, project.scenes.length, project.niche.sceneSeconds);
+    const from = Math.min(short.fromScene, spans.length - 1);
+    const to = Math.min(Math.max(short.toScene, from), spans.length - 1);
+    const start = spans[from].start;
+    const seconds = spans[to].end - start;
+    const key = `projects/${project.id}/shorts/short-${short.index + 1}.mp4`;
+    await renderShort({
+      source: resolveKey(project.finalVideoPath),
+      sourceAspect: project.aspectRatio,
+      start,
+      seconds,
+      hook: short.hook,
+      captions: captionCues(
+        project.scenes.slice(from, to + 1).map((s, i) => ({ narration: s.narration, ...spans[from + i] })),
+        start,
+      ),
+      accent: project.niche.thumbnailAccent,
+      brand: project.niche.thumbnailBrand,
+      outFile: resolveKey(key),
+    });
+    await db
+      .update(shorts)
+      .set({ status: "ready", videoPath: key, error: null })
+      .where(eq(shorts.id, shortId));
+  } catch (err) {
+    await db
+      .update(shorts)
+      .set({ status: "failed", error: message(err) })
+      .where(eq(shorts.id, shortId));
   }
 }

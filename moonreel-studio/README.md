@@ -18,11 +18,12 @@ Vertical 9:16 for TikTok · Reels · Shorts, and 16:9 for YouTube. Powered by Me
 
 ## Features
 
-- **Niche-first workspace.** Pick a niche when you open the app and everything stays scoped to it until you switch. Each niche carries its own script rules, tone, language, visual style, scene count and length, default format and default character.
+- **Niche-first workspace.** Pick a niche when you open the app and everything stays scoped to it until you switch. Each niche carries its own script rules, tone, language, visual style, scene count and length, default format and default cast.
 - **AI scriptwriting you stay in control of.** Muse drafts a scene-by-scene script in the niche's voice. You edit narration, visuals and camera moves, reorder or add scenes, then approve.
-- **A consistent character.** Describe a character once and let Muse draw a reference image, or upload your own. Every scene is generated from that reference.
+- **Consistent characters.** Describe a character once and let Muse draw a reference image, or upload your own. A video can have a whole cast: the script decides who is on screen in each scene (you can change it), and every keyframe is drawn from those characters' references.
 - **Scene-by-scene production.** Each scene gets a keyframe and then an image-to-video clip. Progress updates live, and any single scene can be retried.
 - **Ready-to-post output.** FFmpeg normalises and joins the clips into one MP4 with embedded soft subtitles, plus a separate `.srt` file.
+- **Shorts from every video.** One click picks the three strongest 25–58 s moments of a finished video and cuts each into a 9:16 Short with an on-screen hook and burned-in captions, plus its own title and description.
 - **Ambient loops for your own audio.** Set a niche's video type to *Ambient loop*, describe a place and upload a soundtrack (up to 1 GB). Muse films a few calm shots of it; they crossfade into one seamless loop that repeats until the audio ends, so an hour-long video renders in seconds.
 - **Thumbnails in the channel's style.** Each niche picks a template (Impact, Cinematic or Boxed), an accent colour and a brand label. Muse draws a photo framed for the headline, and the worker lays the headline over it as a 1280×720 (or 1080×1920) JPEG.
 - **Captions for every platform.** After the render, a YouTube title, description with chapters and tags, plus TikTok, Instagram and Facebook captions are written from the script, each with a copy button.
@@ -241,7 +242,7 @@ The repository ships four sample niches (`scripts/default-niches.ts`). Niches fo
 - `pnpm niches:export` writes every niche you created in the app, except the samples, to that folder. Run it after editing a niche in **Settings** to keep the file current.
 - `pnpm db:seed` inserts the sample niches and every file in that folder, skipping slugs that already exist, so a fresh database gets your niches back.
 
-Fields match the niche form; `scriptInstructions` may be a string or an array of lines. Default characters are not exported, because their ids only exist in your database.
+Fields match the niche form; `scriptInstructions` may be a string or an array of lines. Default casts are not exported, because their ids only exist in your database.
 
 ### Ambient loops
 
@@ -261,14 +262,15 @@ From then on, clips in that niche are generated with ambient sound only. At rend
 
 The interface is available in English and Vietnamese. It follows your browser's language, falls back to English, and the **EN / VI** switch at the bottom of the sidebar overrides it. Labels below are the English ones, with the Vietnamese text in parentheses.
 
-1. **Choose a niche.** On first visit the app opens on the niche picker. The choice is remembered in your browser. Use **Switch niche** (*Đổi ngách*) in the sidebar to change it, and **Settings** (*Cấu hình*) to edit its script instructions, tone, language, visual style, scene count, seconds per scene, default format and default character.
+1. **Choose a niche.** On first visit the app opens on the niche picker. The choice is remembered in your browser. Use **Switch niche** (*Đổi ngách*) in the sidebar to change it, and **Settings** (*Cấu hình*) to edit its script instructions, tone, language, visual style, scene count, seconds per scene, default format and default cast.
 2. **Create a character** (*Nhân vật*). Describe the appearance **in English** and in detail (age, face, hair, outfit, colours, art style). Then let Muse draw the reference image (about a minute, in the background) or upload your own.
-3. **Start a video** (*Tạo video*). Enter a topic, then pick the format and character; both are preselected from the niche configuration.
+3. **Start a video** (*Tạo video*). Enter a topic, then pick the format and the cast: click characters in order, the first is the lead. Both are preselected from the niche configuration.
 4. **Review the script.** Muse writes it in 1–3 minutes and the page updates by itself. Edit any scene, reorder, add or remove scenes, then click **Approve & produce** (*Duyệt & sản xuất*).
 5. **Watch production.** Each scene takes about 2–4 minutes (keyframe, then clip). If a scene fails or looks wrong, use **Redo clip** (*Làm lại clip*) or **With image** (*Cả ảnh*) to redraw the keyframe as well. **Edit** (*Sửa*) lets you rewrite that scene's narration, visual description or camera first. If Muse declines a scene, the card says so and shows Muse's reply; soften the description and try again.
 6. **Download.** When every scene is done the video is rendered automatically. Download the MP4 and the `.srt` captions from the project page.
 7. **Post.** Under the video, **Captions** (*Caption*) holds a ready-to-paste title, description, tags and caption per platform. YouTube chapter times are measured on the rendered video, so they are rewritten after every render; **Rewrite captions** (*Viết lại caption*) asks for a new version. Realistic AI footage must be labelled when you upload (YouTube: *Altered content*; TikTok: *AI-generated content*).
 8. **Thumbnail.** Drawn right after the captions, in the niche's template. Change the headline (wrap words in `*stars*` for the accent colour), switch the background to any scene's image, or edit the photo description and **Draw a new photo** (*Vẽ ảnh mới*). A headline change only re-lays the text, so it takes a second. If Muse declines the photo, the scene the captions suggested is used and the card says why. Then **Download thumbnail** (*Tải thumbnail*).
+9. **Shorts.** **Cut 3 Shorts** (*Cắt 3 Shorts*) lets the AI pick three runs of scenes, write a hook (3–7 words, `*stars*` for the accent colour), a title and a description for each, and render them at 1080×1920: the video in the middle over a blurred copy of itself, the hook above, the narration as captions below. Edit a Short's hook or scene range and it is cut again; title and description changes save instantly. **Download Short** (*Tải Short*), then in YouTube Studio set *Related video* to the full video.
 
 ### Tips for better results
 
@@ -383,7 +385,7 @@ moonreel-studio/
 ## Roadmap
 
 - [ ] More providers (Kling, Seedance via fal.ai) behind the `GenerationProvider` interface
-- [ ] Burned-in captions, background music and transitions
+- [ ] Background music and transitions
 - [ ] MCP-connector mode, so Muse pulls jobs directly from the app
 - [ ] Auto-publishing to TikTok and YouTube
 

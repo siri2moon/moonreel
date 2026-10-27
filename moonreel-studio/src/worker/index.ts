@@ -3,9 +3,11 @@ import {
   generateCharacterReference,
   generatePosts,
   generateScript,
+  planShorts,
   generateThumbnail,
   produceScene,
   renderProject,
+  renderShortClip,
 } from "@/lib/pipeline/jobs";
 import {
   QUEUES,
@@ -14,6 +16,8 @@ import {
   type ProjectPostsJob,
   type ProjectThumbnailJob,
   type ProjectRenderJob,
+  type ProjectShortsJob,
+  type ShortRenderJob,
   type SceneProduceJob,
   type ScriptGenerateJob,
 } from "@/lib/queue";
@@ -54,6 +58,16 @@ async function main() {
   await boss.work<ProjectThumbnailJob>(QUEUES.projectThumbnail, async ([job]) => {
     console.log(`[thumbnail] project ${job.data.projectId}`);
     await generateThumbnail(job.data.projectId);
+  });
+
+  await boss.work<ProjectShortsJob>(QUEUES.projectShorts, async ([job]) => {
+    console.log(`[shorts] project ${job.data.projectId}`);
+    await planShorts(job.data.projectId);
+  });
+
+  await boss.work<ShortRenderJob>(QUEUES.shortRender, async ([job]) => {
+    console.log(`[short] ${job.data.shortId}`);
+    await renderShortClip(job.data.shortId);
   });
 
   console.log(`Worker ready (Muse concurrency ${museConcurrency})`);
