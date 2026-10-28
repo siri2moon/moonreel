@@ -98,6 +98,10 @@ const en = {
     topicHint: "The more specific (numbers, audience, situation), the closer the script.",
     stepFormat: "Format",
     stepCharacter: "Characters",
+    stepSceneCount: "Length",
+    sceneCountLength: (length: string, seconds: number) => `scenes × ${seconds}s ≈ ${length}`,
+    sceneCountHint: (count: number) =>
+      `The niche's default is ${count}. Fit it to the topic: fewer for a simple one, more for a story with many turns. Every scene is one Muse clip.`,
     characterHint:
       "Pick one or more, in order: the first is the lead. Characters with a reference image look the same in every scene.",
     lead: "lead",
@@ -175,6 +179,13 @@ const en = {
     productionTitle: "Scene production",
     progress: (done: number, total: number, percent: number) => `${done}/${total} scenes done · ${percent}%`,
     retryFailed: (n: number) => `Retry ${n} failed scene${n === 1 ? "" : "s"}`,
+    pause: "Pause production",
+    pausedNote: "Paused. Retry to continue; a drawn keyframe is kept.",
+    autoPausedNote:
+      "Paused automatically: several clips in a row failed, so Muse probably cannot make videos right now (daily allowance used up or account blocked). Retry later.",
+    blockedTitle: "This Muse account cannot make videos",
+    blockedBody:
+      "Meta refused video for this account's region (403), so production was paused. Log in an account that can make videos in muse2api, delete any Muse memory saying not to make videos, then Retry.",
     render: "Render video",
     noImage: "No image yet",
     drawing: "Muse is drawing the keyframe…",
@@ -359,6 +370,11 @@ const en = {
     thumbnailAccentHint: "Highlighted words and details. Pick a colour that stands out against your footage.",
     thumbnailBrand: "Brand label",
     thumbnailBrandHint: "Optional. A small channel name on every thumbnail.",
+    postsInstructions: "Title & thumbnail rules",
+    postsInstructionsHint:
+      "Optional. Your channel's formula for YouTube titles, thumbnail words and the thumbnail picture. It wins over MoonReel's general rules.",
+    postsInstructionsPlaceholder:
+      '- Title: start with what viewers search ("Lion vs Cape Buffalo"), then a concrete hook\n- Thumbnail words: two animals and a big *VS*, at most 3 words\n- Thumbnail picture: both animals face to face',
     production: "Production",
     productionHint: "Default video length and format.",
     defaultFormat: "Default format",

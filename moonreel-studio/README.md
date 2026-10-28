@@ -22,7 +22,8 @@ Vertical 9:16 for TikTok · Reels · Shorts, and 16:9 for YouTube. Powered by Me
 - **AI scriptwriting you stay in control of.** Muse drafts a scene-by-scene script in the niche's voice. You edit narration, visuals and camera moves, reorder or add scenes, then approve.
 - **Consistent characters.** Describe a character once and let Muse draw a reference image, or upload your own. A video can have a whole cast: the script decides who is on screen in each scene (you can change it), and every keyframe is drawn from those characters' references.
 - **Scene-by-scene production.** Each scene gets a keyframe and then an image-to-video clip. Progress updates live, and any single scene can be retried.
-- **Ready-to-post output.** FFmpeg normalises and joins the clips into one MP4 with embedded soft subtitles, plus a separate `.srt` file.
+- **Ready-to-post output.** FFmpeg upscales Muse's 720p clips to 1080p and joins them into one MP4 with embedded soft subtitles, plus a separate `.srt` file. YouTube streams 1080p uploads at a much higher bitrate than 720p ones.
+- **Your channel's title and thumbnail formula.** Each niche can carry its own rules for YouTube titles, thumbnail words and the thumbnail picture; they override MoonReel's general caption rules.
 - **Shorts from every video.** One click picks the three strongest 25–58 s moments of a finished video and cuts each into a 9:16 Short with an on-screen hook and burned-in captions, plus its own title and description.
 - **Ambient loops for your own audio.** Set a niche's video type to *Ambient loop*, describe a place and upload a soundtrack (up to 1 GB). Muse films a few calm shots of it; they crossfade into one seamless loop that repeats until the audio ends, so an hour-long video renders in seconds.
 - **Thumbnails in the channel's style.** Each niche picks a template (Impact, Cinematic or Boxed), an accent colour and a brand label. Muse draws a photo framed for the headline, and the worker lays the headline over it as a 1280×720 (or 1080×1920) JPEG.
@@ -151,6 +152,9 @@ pnpm db:seed    # add 4 sample niches, plus your private ones (safe to re-run)
 
 ### 5. Connect your muse.ai account
 
+> [!IMPORTANT]
+> **muse.ai changed its sign-in cookies on 27 October 2026.** It no longer sets `hatch_gw` or `hatch_vml`; the session now uses `hatch_sess`, `hatch_native_auth_device` and a host-only `__Host-hatch_…` cookie. muse2api up to commit `14c2ab9` still requires the two old cookies, so its extension stops with *"Đã đọc N Cookie nhưng còn thiếu: hatch_gw, hatch_vml"* and existing accounts stop renewing. Until muse2api is updated, build it with the patch in this repository first: see [Patch muse2api for the new cookies](#patch-muse2api-for-the-new-cookies).
+
 Opening the admin page and entering the key is **not** enough. You must add a muse.ai account, otherwise the app keeps showing **Muse not connected** (*Muse chưa kết nối*).
 
 1. Open **`http://localhost:18610/admin?key=<MUSE2API_KEY>`**.
@@ -164,6 +168,10 @@ Opening the admin page and entering the key is **not** enough. You must add a mu
 2. Open `chrome://extensions` (works in Chrome, Edge, Brave, Arc and other Chromium browsers), turn on **Developer mode**, click **Load unpacked** and select the unzipped folder.
 3. Sign in at [muse.ai](https://muse.ai/), open the extension on that tab and click **Lấy Cookie và thêm tài khoản** (get cookies and add account). The service URL and key are filled in automatically.
 
+The **service address** (*Địa chỉ dịch vụ*) is the root of muse2api, `http://localhost:18610`, not the admin page: `http://localhost:18610/admin` answers `HTTP 404 {"detail":"Not Found"}`. The patched extension strips a trailing `/admin` for you.
+
+Give each account a name (*Tên tài khoản*) so you can tell them apart in the logs, and repeat the steps for every muse.ai account you want muse2api to use.
+
 </details>
 
 <details>
@@ -174,14 +182,15 @@ Opening the admin page and entering the key is **not** enough. You must add a mu
    Use the *request* `cookie:` header, not `set-cookie` from the response.
 3. Paste it into **Cookie đăng nhập** on the admin page and click **Thêm tài khoản** (add account).
 
-The value must contain these four cookies:
+Copy the whole header: every cookie in it is needed. Since 27 October 2026 the ones that matter are:
 
 | Cookie | Lifetime | Role |
 |---|---|---|
 | `hatch_sess` | ~30 days | Main session |
-| `hatch_gw` | ~1 year | Gateway token |
-| `hatch_vml` | **~2 days** | Short-lived token that decides when the session expires |
 | `hatch_native_auth_device` | ~30 days | Device id |
+| `__Host-hatch_…` | | Session token, host-only (replaces `hatch_gw` and `hatch_vml`) |
+
+Accounts imported before that date also carry `hatch_gw` (~1 year) and `hatch_vml` (~2 days); muse.ai no longer renews them, so import those accounts again.
 
 </details>
 
@@ -193,7 +202,35 @@ Download `get_muse_cookie.py` from `http://localhost:18610/admin/cookie-helper?d
 </details>
 
 > [!WARNING]
-> Never commit or share cookies, your `.env`, or the `~/.moonreel/` folder. Each of them grants access to your muse.ai account.
+> Never commit or share cookies, your `.env`, or the `~/.moonreel/` folder. Each of them grants access to your muse.ai account. Screenshots of the extension or the admin page show your `MUSE2API_KEY`; crop it out before sharing.
+
+#### Patch muse2api for the new cookies
+
+`docker/muse2api-session-cookies.patch` makes muse2api work with the cookies muse.ai sets since 27 October 2026:
+
+- only `hatch_sess` and `hatch_native_auth_device` are required (server and extension);
+- `__Host-` cookies are set host-only when an account is loaded into Chromium (Chromium rejects them with a domain, so the session was silently dropped);
+- the extension accepts the admin page URL as the service address.
+
+Build the patched image once, from a folder outside this repository:
+
+```bash
+git clone https://github.com/bynne2602/muse2api.git ~/muse2api
+cd ~/muse2api
+git checkout 14c2ab9                       # the commit the patch was made against
+git apply /path/to/moonreel-studio/docker/muse2api-session-cookies.patch
+docker build -t muse2api:local .
+
+cd /path/to/moonreel-studio
+docker compose up -d --no-build muse2api   # restart on the patched image
+```
+
+Then reload the extension from the patched copy: in `chrome://extensions` remove the old Muse2API extension, click **Load unpacked** and pick `~/muse2api/extension`. Import each account again (Option A).
+
+> [!CAUTION]
+> `docker compose build` or `docker compose up --build` rebuilds muse2api from GitHub and drops the patch. Use `--no-build` until muse2api ships its own fix. If `git apply` fails, muse2api has changed: check whether it already handles the new cookies before patching.
+
+To check that an account works, watch the keep-alive lines in `docker logs -f moonreel-muse2api`: every 15 minutes each account logs `执行结果: ok=True` (renewed) or `ok=False` (session dead: import it again).
 
 ### 6. Run
 
@@ -242,7 +279,7 @@ The repository ships four sample niches (`scripts/default-niches.ts`). Niches fo
 - `pnpm niches:export` writes every niche you created in the app, except the samples, to that folder. Run it after editing a niche in **Settings** to keep the file current.
 - `pnpm db:seed` inserts the sample niches and every file in that folder, skipping slugs that already exist, so a fresh database gets your niches back.
 
-Fields match the niche form; `scriptInstructions` may be a string or an array of lines. Default casts are not exported, because their ids only exist in your database.
+Fields match the niche form; `scriptInstructions` and `postsInstructions` (the title & thumbnail rules) may be a string or an array of lines. `NICHES_DIR` can be a symlink, for example into a private git repository that versions your channels. Default casts are not exported, because their ids only exist in your database.
 
 ### Ambient loops
 
@@ -264,9 +301,9 @@ The interface is available in English and Vietnamese. It follows your browser's 
 
 1. **Choose a niche.** On first visit the app opens on the niche picker. The choice is remembered in your browser. Use **Switch niche** (*Đổi ngách*) in the sidebar to change it, and **Settings** (*Cấu hình*) to edit its script instructions, tone, language, visual style, scene count, seconds per scene, default format and default cast.
 2. **Create a character** (*Nhân vật*). Describe the appearance **in English** and in detail (age, face, hair, outfit, colours, art style). Then let Muse draw the reference image (about a minute, in the background) or upload your own.
-3. **Start a video** (*Tạo video*). Enter a topic, then pick the format and the cast: click characters in order, the first is the lead. Both are preselected from the niche configuration.
+3. **Start a video** (*Tạo video*). Enter a topic, then pick the format and the cast: click characters in order, the first is the lead. Both are preselected from the niche configuration. **Length** (*Độ dài*) sets this video's scene count (the niche's by default): fewer for a simple topic, more for a story with many turns. Each scene is one Muse clip.
 4. **Review the script.** Muse writes it in 1–3 minutes and the page updates by itself. Edit any scene, reorder, add or remove scenes, then click **Approve & produce** (*Duyệt & sản xuất*).
-5. **Watch production.** Each scene takes about 2–4 minutes (keyframe, then clip). If a scene fails or looks wrong, use **Redo clip** (*Làm lại clip*) or **With image** (*Cả ảnh*) to redraw the keyframe as well. **Edit** (*Sửa*) lets you rewrite that scene's narration, visual description or camera first. If Muse declines a scene, the card says so and shows Muse's reply; soften the description and try again.
+5. **Watch production.** Each scene takes about 2–4 minutes (keyframe, then clip). If a scene fails or looks wrong, use **Redo clip** (*Làm lại clip*) or **With image** (*Cả ảnh*) to redraw the keyframe as well. **Edit** (*Sửa*) lets you rewrite that scene's narration, visual description or camera first. If Muse declines a scene, the card says so and shows Muse's reply; soften the description and try again. **Pause production** (*Tạm dừng sản xuất*) stops every scene that has not reached the video step (for example when Muse's daily video allowance has run out); clips already being made finish, drawn keyframes are kept, and **Retry** continues later.
 6. **Download.** When every scene is done the video is rendered automatically. Download the MP4 and the `.srt` captions from the project page.
 7. **Post.** Under the video, **Captions** (*Caption*) holds a ready-to-paste title, description, tags and caption per platform. YouTube chapter times are measured on the rendered video, so they are rewritten after every render; **Rewrite captions** (*Viết lại caption*) asks for a new version. Realistic AI footage must be labelled when you upload (YouTube: *Altered content*; TikTok: *AI-generated content*).
 8. **Thumbnail.** Drawn right after the captions, in the niche's template. Change the headline (wrap words in `*stars*` for the accent colour), switch the background to any scene's image, or edit the photo description and **Draw a new photo** (*Vẽ ảnh mới*). A headline change only re-lays the text, so it takes a second. If Muse declines the photo, the scene the captions suggested is used and the card says why. Then **Download thumbnail** (*Tải thumbnail*).
@@ -307,7 +344,25 @@ The interface is available in English and Vietnamese. It follows your browser's 
 <details>
 <summary><b>Generation stops working after a couple of days</b></summary>
 
-The `hatch_vml` cookie lives about 2 days and is not extended by use. When it expires, sign in to muse.ai again and re-import the cookies with the extension or manually. The admin page warns you when a session is close to expiring.
+A muse.ai session does not last forever. When `docker logs moonreel-muse2api` shows `ok=False` for an account, sign in to muse.ai again and re-import its cookies with the extension or manually. The admin page warns you when a session is close to expiring. If the extension says cookies `hatch_gw` / `hatch_vml` are missing, your muse2api predates muse.ai's October 2026 change: apply [the patch](#patch-muse2api-for-the-new-cookies).
+
+</details>
+
+<details>
+<summary><b>Images work but every clip fails ("The video didn't get made", "403", "地区限制")</b></summary>
+
+Chat and images can work while video does not. Open a failed scene's **Muse's reply**:
+
+- **"403" or a region restriction (地区限制).** Meta does not allow video for that muse.ai account where it is. It is per account, not per IP: two accounts on the same network can differ. MoonReel marks the scene *This Muse account cannot make videos*, does not ask again, and pauses the project. Import an account that can make videos (try one clip on muse.ai first), then **Retry**. Routing an account through a proxy in another country is not a fix: a session that suddenly moves country is a classic reason for a sign-in check or a lock.
+- **"The video didn't get made", with no reason.** Usually the account's daily video allowance is used up. After three clips in a row fail at the video step with none made in between, MoonReel pauses the project by itself. Try again later, or add another account. A long video asks for one clip per scene, so a 36-scene video can use up an account's day.
+- **"I did not resubmit this video", or Muse saying it was told not to request videos for this account.** Muse keeps a memory across chats and has written down that this account cannot make videos, so it refuses before trying. Its Settings have no memory editor; in the account's **Main chat** ask it to list what it remembers about video, 403 errors or region restrictions, then ask it to delete those notes and always submit video requests. Do not use **Reset Muse**: it deletes all chats and files.
+
+</details>
+
+<details>
+<summary><b>How do I stop a video that keeps failing?</b></summary>
+
+Click **Pause production** (*Tạm dừng sản xuất*) above the scenes. Scenes that have not reached the video step stop, and their waiting jobs are cancelled; clips already being made finish. Keyframes are kept, so **Retry** later only makes the missing clips.
 
 </details>
 

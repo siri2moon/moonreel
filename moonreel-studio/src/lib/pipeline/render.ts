@@ -2,9 +2,11 @@ import { spawn } from "node:child_process";
 import { rm, writeFile } from "node:fs/promises";
 import type { AspectRatio } from "@/db/schema";
 
+// Muse clips are 720p; they are upscaled to 1080p, because YouTube gives 1080p uploads a far
+// higher streaming bitrate (and a better codec) than 720p ones, so the video looks sharper.
 const FRAME: Record<AspectRatio, { w: number; h: number }> = {
-  "9:16": { w: 720, h: 1280 },
-  "16:9": { w: 1280, h: 720 },
+  "9:16": { w: 1080, h: 1920 },
+  "16:9": { w: 1920, h: 1080 },
 };
 
 export function exec(cmd: string, args: string[]) {
@@ -129,7 +131,7 @@ export async function renderFinal(input: {
     const dur = durations[i].toFixed(3);
     const hold = durations[i] - info.duration;
     filters.push(
-      `[${i}:v]scale=${w}:${h}:force_original_aspect_ratio=decrease,pad=${w}:${h}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1,fps=30,format=yuv420p${
+      `[${i}:v]scale=${w}:${h}:force_original_aspect_ratio=decrease:flags=lanczos,pad=${w}:${h}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1,fps=30,format=yuv420p${
         hold > 0.001 ? `,tpad=stop_mode=clone:stop_duration=${hold.toFixed(3)}` : ""
       },trim=0:${dur},setpts=PTS-STARTPTS[v${i}]`,
     );
@@ -155,8 +157,8 @@ export async function renderFinal(input: {
     "-map", "[a]",
     "-map", `${srtInput}:s`,
     "-c:v", "libx264",
-    "-preset", "veryfast",
-    "-crf", "20",
+    "-preset", "medium",
+    "-crf", "18",
     "-c:a", "aac",
     "-b:a", "192k",
     "-c:s", "mov_text",
@@ -210,7 +212,7 @@ const LOOP_CROSSFADE_S = 2.5;
 const EASED_FADE = "A*(P*P*(3-2*P))+B*(1-P*P*(3-2*P))";
 
 function normalizeVideo(w: number, h: number, fps: string) {
-  return `scale=${w}:${h}:force_original_aspect_ratio=increase,crop=${w}:${h},setsar=1,fps=${fps},format=yuv420p`;
+  return `scale=${w}:${h}:force_original_aspect_ratio=increase:flags=lanczos,crop=${w}:${h},setsar=1,fps=${fps},format=yuv420p`;
 }
 
 /** The clip's own frame rate, e.g. "24/1"; converting Muse's 24 fps to 30 repeats every 4th frame. */

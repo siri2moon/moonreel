@@ -8,11 +8,13 @@ import { db } from "@/db";
 import { characters, nicheCharacters } from "@/db/schema";
 import { CastPicker } from "@/components/cast-picker";
 import { ReferenceImageUpload } from "@/components/reference-image-upload";
+import { SceneCountField } from "@/components/scene-count-field";
 import { SoundtrackUpload } from "@/components/soundtrack-upload";
 import { Button, Card, Chip, Empty, Eyebrow, inputClass, LinkButton, Loading, PageHeader } from "@/components/ui";
 import type { Dictionary } from "@/i18n/dictionaries";
 import { getDictionary } from "@/i18n/server";
 import { getActiveNiche } from "@/lib/active-niche";
+import { MAX_PROJECT_SCENES } from "@/lib/pipeline/prompts";
 import { fileUrl } from "@/lib/storage";
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -166,6 +168,18 @@ async function NewProject() {
                   {p.newCharacter}
                 </Link>
               </p>
+            </Step>
+          )}
+
+          {/* Ambient videos run as long as their soundtrack, so their shot count stays the niche's. */}
+          {!ambient && (
+            <Step n={4} title={p.stepSceneCount}>
+              <SceneCountField
+                name="sceneCount"
+                defaultCount={niche.sceneCount}
+                sceneSeconds={niche.sceneSeconds}
+                max={MAX_PROJECT_SCENES}
+              />
             </Step>
           )}
         </Card>

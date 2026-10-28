@@ -65,6 +65,9 @@ function castBlock(cast: Character[], voiceOver: boolean) {
  */
 export const SCRIPT_PART_SCENES = 12;
 
+/** Most scenes a single video may ask for: each one is a Muse clip from a limited daily allowance. */
+export const MAX_PROJECT_SCENES = 48;
+
 export const outlineSchema = z.object({
   title: z.string().min(1),
   beats: z.array(z.string().min(1)).min(1),
@@ -294,7 +297,15 @@ ${
 - thumbnail.prompt: in English, one striking photo for the thumbnail background: a single clear focal subject, close and large, frozen at the most dramatic moment the video actually shows, strong emotion, setting and light. No text in the image. Nothing graphic or gory.`
 }
 - thumbnail.scene: the scene number whose image would make the best thumbnail if the photo cannot be made.
-
+${
+  niche.postsInstructions.trim()
+    ? `
+# This channel's own rules for titles and thumbnails
+They come from the channel owner and win over the rules above wherever the two differ:
+${niche.postsInstructions.trim()}
+`
+    : ""
+}
 # Output
 Reply with ONLY this JSON object, no markdown, no explanation:
 ${POSTS_SHAPE}`;

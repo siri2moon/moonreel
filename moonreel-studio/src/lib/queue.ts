@@ -109,6 +109,17 @@ export async function enqueueScenes(sceneIds: string[], opts: { startAfterSecond
   );
 }
 
+/** Takes these scenes' waiting jobs off the queue; a job already running finishes on its own. */
+export async function cancelSceneJobs(sceneIds: string[]) {
+  if (sceneIds.length === 0) return;
+  const boss = await getBoss();
+  const wanted = new Set(sceneIds);
+  // One read of every waiting scene job (a short list across all projects), matched in memory.
+  const waiting = await boss.findJobs<SceneProduceJob>(QUEUES.sceneProduce, { queued: true });
+  const ids = waiting.filter((job) => wanted.has(job.data.sceneId)).map((job) => job.id);
+  if (ids.length) await boss.cancel(QUEUES.sceneProduce, ids);
+}
+
 export async function enqueueRender(projectId: string) {
   const boss = await getBoss();
   await boss.send(QUEUES.projectRender, { projectId } satisfies ProjectRenderJob, {

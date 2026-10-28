@@ -113,6 +113,8 @@ export const niches = pgTable("niches", {
   thumbnailStyle: text("thumbnail_style").notNull().default("impact"),
   thumbnailAccent: text("thumbnail_accent").notNull().default("#FFC23D"),
   thumbnailBrand: text("thumbnail_brand").notNull().default(""),
+  /** The channel's own title and thumbnail rules; they win over the general ones in the captions prompt. */
+  postsInstructions: text("posts_instructions").notNull().default(""),
   ...timestamps,
 });
 
@@ -143,6 +145,8 @@ export const projects = pgTable("projects", {
   audioPath: text("audio_path"),
   /** Length of the soundtrack, which is also the length of the final ambient video. */
   audioSeconds: real("audio_seconds"),
+  /** Scenes in this video's script; null uses the niche's count. */
+  sceneCount: integer("scene_count"),
   /** Optional photo of the place; Muse copies it when drawing keyframes and the thumbnail. */
   referenceImagePath: text("reference_image_path"),
   posts: jsonb("posts").$type<SocialPosts>(),

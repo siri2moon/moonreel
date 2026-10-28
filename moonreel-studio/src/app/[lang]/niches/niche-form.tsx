@@ -286,6 +286,15 @@ export function NicheForm({
             />
           </Field>
         </div>
+        <Field label={f.postsInstructions} hint={f.postsInstructionsHint}>
+          <textarea
+            name="postsInstructions"
+            rows={5}
+            defaultValue={niche?.postsInstructions}
+            className={`${inputClass} text-[13px] leading-relaxed`}
+            placeholder={f.postsInstructionsPlaceholder}
+          />
+        </Field>
       </Section>
 
       <Section icon={<Clapperboard />} title={f.production} description={f.productionHint}>

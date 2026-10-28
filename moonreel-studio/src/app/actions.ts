@@ -23,6 +23,8 @@ import {
 } from "@/lib/queue";
 import { mediaDuration } from "@/lib/pipeline/render";
 import { REFERENCE_KEY } from "@/lib/reference-image";
+import { MAX_PROJECT_SCENES } from "@/lib/pipeline/prompts";
+import { pauseScenes } from "@/lib/production";
 import { SOUNDTRACK_KEY } from "@/lib/soundtrack";
 import { THUMBNAIL_STYLES } from "@/lib/thumbnail-styles";
 import { resolveKey, saveFile } from "@/lib/storage";
@@ -74,6 +76,7 @@ const nicheSchema = z.object({
     .regex(/^#[0-9a-fA-F]{6}$/, "accent: a colour like #FFC23D")
     .default("#FFC23D"),
   thumbnailBrand: z.string().trim().max(32).default(""),
+  postsInstructions: z.string().trim().default(""),
 });
 
 async function setActiveNiche(id: string) {
@@ -191,6 +194,11 @@ export async function deleteCharacter(id: string) {
 
 const projectSchema = z.object({
   topic: z.string().trim().min(3),
+  // Missing or empty: the niche's count.
+  sceneCount: z.preprocess(
+    (v) => (v === "" || v == null ? undefined : v),
+    z.coerce.number().int().min(1).max(MAX_PROJECT_SCENES).optional(),
+  ),
   nicheId: z.uuid(),
   castIds: castIdsSchema,
   aspectRatio: z.enum(["9:16", "16:9"]),
@@ -274,6 +282,12 @@ export async function approveAndProduce(projectId: string, title: string, input:
     .set({ status: "producing", error: null, finalVideoPath: null, captionsPath: null })
     .where(eq(projects.id, projectId));
   await enqueueScenes(inserted.map((s) => s.id));
+  revalidatePath(`/projects/${projectId}`);
+}
+
+/** Stops a project's production; see pauseScenes. */
+export async function pauseProduction(projectId: string) {
+  await pauseScenes(projectId);
   revalidatePath(`/projects/${projectId}`);
 }
 

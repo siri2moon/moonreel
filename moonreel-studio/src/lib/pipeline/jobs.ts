@@ -1,4 +1,4 @@
-import { and, asc, eq, sql } from "drizzle-orm";
+import { and, asc, eq, ne, sql } from "drizzle-orm";
 import sharp from "sharp";
 import { db } from "@/db";
 import {
@@ -14,7 +14,8 @@ import {
 import { getProvider } from "@/lib/providers";
 import { gatewayChat, gatewayConfigured } from "@/lib/providers/gateway";
 import { MuseRefusedError } from "@/lib/providers/muse2api";
-import { REFUSED_PREFIX } from "@/lib/scene-errors";
+import { pauseScenes } from "@/lib/production";
+import { AUTO_PAUSED_ERROR, BLOCKED_PREFIX, isRegionBlock, REFUSED_PREFIX } from "@/lib/scene-errors";
 import { enqueuePosts, enqueueRender, enqueueScenes, enqueueShortRenders, enqueueThumbnail } from "@/lib/queue";
 import { readFileByKey, resolveKey, saveFile, toDataUrl } from "@/lib/storage";
 import type { z } from "zod";
@@ -60,6 +61,8 @@ async function withRetry<T>(label: string, fn: () => Promise<T>, attempts = 2): 
     try {
       return await fn();
     } catch (err) {
+      // The account may not make videos at all; asking again only teaches Muse to stop trying.
+      if (err instanceof MuseRefusedError && isRegionBlock(err.reply)) throw err;
       lastErr = err;
       console.warn(`[${label}] attempt ${i}/${attempts} failed: ${message(err)}`);
     }
@@ -221,7 +224,8 @@ export async function generateScript(projectId: string) {
 
   try {
     const script = await writeScript({
-      niche: project.niche,
+      // A video may ask for more or fewer scenes than its niche; the prompts read it from here.
+      niche: { ...project.niche, sceneCount: project.sceneCount ?? project.niche.sceneCount },
       cast,
       topic: project.topic,
       aspectRatio: project.aspectRatio,
@@ -299,13 +303,42 @@ async function sharedKeyframe(projectId: string): Promise<string | "wait"> {
   return "wait";
 }
 
+// This many clips failing in a row, with none made in between, means Muse cannot make videos
+// right now (allowance used up, account blocked) rather than that one scene is a problem.
+const CLIP_FAILURE_STREAK = 3;
+
+/** True when the project's last few clips all failed at the video step. One aggregate query. */
+async function clipsKeepFailing(projectId: string) {
+  const [row] = await db
+    .select({
+      // Failed at the video step: the keyframe exists. Counted since the last clip that worked.
+      streak: sql<number>`count(*) filter (where ${scenes.status} = 'failed' and ${scenes.keyframePath} is not null and ${scenes.error} not like '[paused%' and ${scenes.updatedAt} > coalesce((select max(s2.updated_at) from scenes s2 where s2.project_id = ${projectId} and s2.status = 'done'), 'epoch'))::int`,
+    })
+    .from(scenes)
+    .where(eq(scenes.projectId, projectId));
+  return (row?.streak ?? 0) >= CLIP_FAILURE_STREAK;
+}
+
+/** Moves a scene to its next step unless it was paused meanwhile; false when it was. */
+async function advance(sceneId: string, status: "keyframe" | "video") {
+  const rows = await db
+    .update(scenes)
+    .set({ status, error: null })
+    .where(and(eq(scenes.id, sceneId), ne(scenes.status, "failed")))
+    .returning({ id: scenes.id });
+  return rows.length > 0;
+}
+
 export async function produceScene(sceneId: string) {
   const scene = await db.query.scenes.findFirst({
     where: eq(scenes.id, sceneId),
     with: { project: { with: { niche: true, ...withCast } } },
   });
-  // A job can be redelivered after a worker restart; never redo a finished scene.
-  if (!scene || scene.status === "done" || scene.project.status !== "producing") return;
+  // A job can be redelivered after a worker restart; never redo a finished scene. A failed one
+  // was paused (or already given up on): Retry sets it back to pending before queueing it.
+  if (!scene || scene.status === "done" || scene.status === "failed" || scene.project.status !== "producing") {
+    return;
+  }
 
   const { project } = scene;
   const { niche } = project;
@@ -326,7 +359,7 @@ export async function produceScene(sceneId: string) {
       await db.update(scenes).set({ keyframePath }).where(eq(scenes.id, sceneId));
     }
     if (!keyframePath) {
-      await db.update(scenes).set({ status: "keyframe", error: null }).where(eq(scenes.id, sceneId));
+      if (!(await advance(sceneId, "keyframe"))) return;
       const reference = await imageReference(project, onScreen);
       const image = await withRetry("keyframe", () =>
         provider.generateImage({
@@ -345,7 +378,8 @@ export async function produceScene(sceneId: string) {
       await db.update(scenes).set({ keyframePath }).where(eq(scenes.id, sceneId));
     }
 
-    await db.update(scenes).set({ status: "video", error: null }).where(eq(scenes.id, sceneId));
+    // Paused while the keyframe was drawn: keep the image, make no clip.
+    if (!(await advance(sceneId, "video"))) return;
     const firstFrame = await toDataUrl(keyframePath);
     const makeClip = async () => {
       const video = await withRetry("video", () =>
@@ -384,13 +418,23 @@ export async function produceScene(sceneId: string) {
       .set({ clipPath, status: "done", error: null })
       .where(eq(scenes.id, sceneId));
   } catch (err) {
+    const blocked = err instanceof MuseRefusedError && isRegionBlock(err.reply);
     await db
       .update(scenes)
       .set({
         status: "failed",
-        error: err instanceof MuseRefusedError ? `${REFUSED_PREFIX}${err.reply}` : message(err),
+        error:
+          err instanceof MuseRefusedError
+            ? `${blocked ? BLOCKED_PREFIX : REFUSED_PREFIX}${err.reply}`
+            : message(err),
       })
       .where(eq(scenes.id, sceneId));
+    if (blocked) {
+      await pauseScenes(project.id);
+    } else if (await clipsKeepFailing(project.id)) {
+      console.warn(`[project ${project.id}] ${CLIP_FAILURE_STREAK} clips failed in a row; pausing production`);
+      await pauseScenes(project.id, AUTO_PAUSED_ERROR);
+    }
     return;
   }
 

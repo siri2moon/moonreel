@@ -34,6 +34,7 @@ export const nicheFileSchema = z.object({
   thumbnailStyle: z.enum(THUMBNAIL_STYLES).default("impact"),
   thumbnailAccent: z.string().regex(/^#[0-9a-fA-F]{6}$/).default("#FFC23D"),
   thumbnailBrand: z.string().default(""),
+  postsInstructions: lines.default(""),
 });
 
 export type NicheFile = z.infer<typeof nicheFileSchema>;
@@ -74,6 +75,7 @@ export function toNicheFile(n: Niche) {
     thumbnailStyle: n.thumbnailStyle,
     thumbnailAccent: n.thumbnailAccent,
     thumbnailBrand: n.thumbnailBrand,
+    postsInstructions: n.postsInstructions ? n.postsInstructions.split("\n") : "",
   };
 }
 

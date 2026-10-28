@@ -16,6 +16,7 @@ import {
   Megaphone,
   Mic,
   Music,
+  Pause,
   Pencil,
   Plus,
   RotateCcw,
@@ -36,6 +37,7 @@ import {
   cutShorts,
   deleteProject,
   editScene,
+  pauseProduction,
   regeneratePosts,
   regenerateScript,
   replaceSoundtrack,
@@ -54,7 +56,14 @@ import { formatDuration, SoundtrackUpload } from "@/components/soundtrack-upload
 import { StatusBadge } from "@/components/status-badge";
 import { Button, buttonClass, Card, ErrorNote, inputClass } from "@/components/ui";
 import { useI18n } from "@/i18n/client";
-import { isRefusal, refusalReply } from "@/lib/scene-errors";
+import {
+  AUTO_PAUSED_ERROR,
+  blockedReply,
+  isBlocked,
+  isPaused,
+  isRefusal,
+  refusalReply,
+} from "@/lib/scene-errors";
 import type { ProjectView } from "@/lib/views";
 import type { SocialPosts } from "@/db/schema";
 
@@ -289,6 +298,7 @@ export function ProjectEditor({ initial }: { initial: ProjectView }) {
                 run(() => retryScenes(view.id, ids, { newKeyframe }), { status: "producing", error: null })
               }
               onRender={() => run(() => rerender(view.id), { status: "rendering", error: null })}
+              onPause={() => run(() => pauseProduction(view.id))}
               onRegeneratePosts={() =>
                 run(() => regeneratePosts(view.id), { postsStatus: "writing", postsError: null })
               }
@@ -693,6 +703,7 @@ function Production({
   pending,
   onRetry,
   onRender,
+  onPause,
   onRegeneratePosts,
   onThumbnail,
   onCutShorts,
@@ -703,6 +714,7 @@ function Production({
   pending: boolean;
   onRetry: (ids: string[], newKeyframe: boolean) => void;
   onRender: () => void;
+  onPause: () => void;
   onRegeneratePosts: () => void;
   onThumbnail: (input: ThumbnailInput, newImage: boolean) => void;
   onCutShorts: () => void;
@@ -714,6 +726,8 @@ function Production({
   const total = view.scenes.length;
   const done = view.scenes.filter((s) => s.status === "done").length;
   const failed = view.scenes.filter((s) => s.status === "failed");
+  // Scenes a pause can still stop: not yet at the video step.
+  const pausable = view.scenes.some((s) => s.status === "pending" || s.status === "keyframe");
   const vertical = view.aspectRatio === "9:16";
   const allDone = done === total;
   const percent = Math.round((done / total) * 100);
@@ -784,6 +798,11 @@ function Production({
         sub={<span className="text-xs text-muted">{t.project.progress(done, total, percent)}</span>}
         actions={
           <>
+            {view.status === "producing" && pausable && (
+              <Button variant="ghost" disabled={pending} onClick={onPause}>
+                <Pause /> {t.project.pause}
+              </Button>
+            )}
             {failed.length > 0 && (
               <Button variant="secondary" disabled={pending} onClick={() => onRetry(failed.map((s) => s.id), false)}>
                 <RotateCcw /> {t.project.retryFailed(failed.length)}
@@ -1349,7 +1368,20 @@ function SceneCard({
       <div className="flex flex-1 flex-col gap-2.5 p-3.5">
         <StatusBadge status={scene.status} />
         <p className="line-clamp-3 text-xs leading-relaxed text-muted">{scene.narration}</p>
-        {isRefusal(scene.error) ? (
+        {isPaused(scene.error) ? (
+          <p className="text-xs text-muted">
+            {scene.error === AUTO_PAUSED_ERROR ? t.project.autoPausedNote : t.project.pausedNote}
+          </p>
+        ) : isBlocked(scene.error) ? (
+          <div className="flex flex-col gap-1 rounded-xl bg-danger/10 p-2.5 text-xs shadow-[inset_0_0_0_1px_rgb(255_120_120/0.2)]">
+            <span className="font-semibold text-danger">{t.project.blockedTitle}</span>
+            <span className="leading-relaxed text-muted">{t.project.blockedBody}</span>
+            <details className="text-subtle">
+              <summary className="cursor-pointer">{t.project.refusedReply}</summary>
+              <p className="mt-1 leading-relaxed">{blockedReply(scene.error)}</p>
+            </details>
+          </div>
+        ) : isRefusal(scene.error) ? (
           <div className="flex flex-col gap-1 rounded-xl bg-warning/10 p-2.5 text-xs shadow-[inset_0_0_0_1px_rgb(255_200_120/0.2)]">
             <span className="font-semibold text-warning">{t.project.refusedTitle}</span>
             <span className="leading-relaxed text-muted">{t.project.refusedBody}</span>

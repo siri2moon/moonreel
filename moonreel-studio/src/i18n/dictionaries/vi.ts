@@ -97,6 +97,10 @@ const vi: Dictionary = {
     topicHint: "Càng cụ thể (con số, đối tượng, tình huống), kịch bản càng sát ý.",
     stepFormat: "Định dạng",
     stepCharacter: "Nhân vật",
+    stepSceneCount: "Độ dài",
+    sceneCountLength: (length: string, seconds: number) => `cảnh × ${seconds}s ≈ ${length}`,
+    sceneCountHint: (count: number) =>
+      `Mặc định của ngách là ${count}. Chọn theo chủ đề: ít cảnh cho đề tài đơn giản, nhiều cảnh cho câu chuyện nhiều diễn biến. Mỗi cảnh là một clip Muse.`,
     characterHint:
       "Chọn một hoặc nhiều nhân vật theo thứ tự, người đầu tiên là nhân vật chính. Nhân vật có ảnh tham chiếu giữ ngoại hình nhất quán qua mọi cảnh.",
     lead: "chính",
@@ -173,6 +177,13 @@ const vi: Dictionary = {
     productionTitle: "Sản xuất từng cảnh",
     progress: (done, total, percent) => `${done}/${total} cảnh xong · ${percent}%`,
     retryFailed: (n) => `Thử lại ${n} cảnh lỗi`,
+    pause: "Tạm dừng sản xuất",
+    pausedNote: "Đã tạm dừng. Bấm Thử lại để chạy tiếp; ảnh đã vẽ được giữ lại.",
+    autoPausedNote:
+      "Đã tự tạm dừng: nhiều clip liên tiếp bị lỗi, nhiều khả năng Muse đang không làm được video (hết lượt trong ngày hoặc tài khoản bị chặn). Bấm Thử lại sau.",
+    blockedTitle: "Tài khoản Muse này không được tạo video",
+    blockedBody:
+      "Meta chặn tạo video theo khu vực của tài khoản (lỗi 403) nên việc sản xuất đã tạm dừng. Đăng nhập tài khoản làm được video trong muse2api, xoá trí nhớ Muse bảo không tạo video, rồi bấm Thử lại.",
     render: "Ghép video",
     noImage: "Chưa có hình",
     drawing: "Muse đang vẽ khung hình…",
@@ -357,6 +368,11 @@ const vi: Dictionary = {
     thumbnailAccentHint: "Dùng cho chữ được tô và các chi tiết. Chọn màu nổi bật trên nền video.",
     thumbnailBrand: "Nhãn thương hiệu",
     thumbnailBrandHint: "Không bắt buộc. Tên kênh nhỏ trên mọi thumbnail.",
+    postsInstructions: "Quy tắc tiêu đề & thumbnail",
+    postsInstructionsHint:
+      "Không bắt buộc. Công thức riêng của kênh cho tiêu đề YouTube, chữ và ảnh thumbnail. Được ưu tiên hơn quy tắc chung của MoonReel.",
+    postsInstructionsPlaceholder:
+      '- Tiêu đề: mở đầu bằng cụm người xem hay tìm ("Lion vs Cape Buffalo"), rồi một hook cụ thể\n- Chữ thumbnail: tên hai con vật và chữ *VS* lớn, tối đa 3 từ\n- Ảnh thumbnail: hai con vật đối mặt nhau',
     production: "Sản xuất",
     productionHint: "Độ dài và định dạng mặc định của video.",
     defaultFormat: "Định dạng mặc định",
