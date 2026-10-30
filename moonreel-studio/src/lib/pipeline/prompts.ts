@@ -9,6 +9,8 @@ export const scriptSchema = z.object({
         narration: z.string().min(1),
         visualPrompt: z.string().min(1),
         camera: z.string().default(""),
+        /** Starts from the previous clip's last frame; see scenes.continuesPrevious. */
+        continuesPrevious: z.boolean().default(false),
         /** Names of the cast members on screen; mapped to character ids when saved. */
         characters: z.array(z.string()).default([]),
       }),
@@ -26,13 +28,17 @@ const ASPECT_LABEL: Record<AspectRatio, string> = {
 };
 
 const VOICE_OVER = "The narration is an off-screen voice-over: nobody in the shot speaks it.";
+const WORDLESS =
+  "There is no narration and no dialogue: nobody speaks and nothing is written on screen. The story is told by pictures and acting alone.";
 
 /** Most cast members drawn into one shot; more than this blurs together in one reference image. */
 export const MAX_CHARACTERS_PER_SCENE = 3;
 
-function castBlock(cast: Character[], voiceOver: boolean) {
+function castBlock(cast: Character[], niche: Niche) {
+  const wordless = niche.format === "wordless";
+  const voiceOver = !!niche.narratorVoiceId;
   if (cast.length === 0) {
-    return `No recurring character and no presenter on screen. ${VOICE_OVER} Scenes may use any visuals that fit the topic.`;
+    return `No recurring character and no presenter on screen. ${wordless ? WORDLESS : VOICE_OVER} Scenes may use any visuals that fit the topic.`;
   }
   if (cast.length > 1) {
     const members = cast.map(
@@ -42,7 +48,9 @@ function castBlock(cast: Character[], voiceOver: boolean) {
       "Recurring cast (always exactly these characters, always looking exactly like this):",
       ...members,
       `${cast[0].name} is the lead and appears in most scenes. Every scene lists in "characters" the names of the cast members on screen, at most ${MAX_CHARACTERS_PER_SCENE}, the most important first; an empty list means none of them is in the shot.`,
-      `${VOICE_OVER} When a character talks, the narrator quotes it (e.g. 'and Max says: "Let's go!"').`,
+      wordless
+        ? WORDLESS
+        : `${VOICE_OVER} When a character talks, the narrator quotes it (e.g. 'and Max says: "Let's go!"').`,
     ].join("\n");
   }
   const [character] = cast;
@@ -50,8 +58,8 @@ function castBlock(cast: Character[], voiceOver: boolean) {
     `Recurring character: ${character.name}`,
     `Appearance: ${character.appearance}`,
     character.personality && `Personality / way of speaking: ${character.personality}`,
-    voiceOver
-      ? `The character appears on screen in every scene. ${VOICE_OVER}`
+    wordless || voiceOver
+      ? `The character appears on screen in every scene. ${wordless ? WORDLESS : VOICE_OVER}`
       : "The character appears on screen in every scene and speaks the narration directly to the viewer.",
   ]
     .filter(Boolean)
@@ -92,28 +100,59 @@ ${niche.description}
 ${niche.scriptInstructions}
 
 Tone: ${niche.tone || "natural"}
-Narration language: ${niche.language}
+${niche.format === "wordless" ? "Audience language" : "Narration language"}: ${niche.language}
 Format: ${ASPECT_LABEL[aspectRatio]}
 
 # ${cast.length > 1 ? "Cast" : "Character"}
-${castBlock(cast, !!niche.narratorVoiceId)}
+${castBlock(cast, niche)}
 
 # Topic
 ${topic}`;
 }
 
-const SCENE_SHAPE = '{"narration": "...", "visualPrompt": "...", "camera": "...", "characters": ["..."]}';
+const SCENE_SHAPE =
+  '{"narration": "...", "visualPrompt": "...", "camera": "...", "continuesPrevious": false, "characters": ["..."]}';
+// Ambient shots never chain: fixed-camera niches already share scene 1's keyframe.
+const AMBIENT_SCENE_SHAPE = '{"narration": "...", "visualPrompt": "...", "camera": "...", "characters": ["..."]}';
+
+/**
+ * Longest run of chained shots. Each clip starts from a frame of the one before, so faces and
+ * colours drift a little further every link; a fresh keyframe after this many resets them.
+ */
+export const MAX_CHAINED_SCENES = 3;
+
+/** The writer's chain flags, with scene 1 and every link past MAX_CHAINED_SCENES turned off. */
+export function limitChains(flags: boolean[]) {
+  let run = 0;
+  return flags.map((wanted, i) => {
+    const chained = wanted && i > 0 && run < MAX_CHAINED_SCENES;
+    run = chained ? run + 1 : 0;
+    return chained;
+  });
+}
 
 function sceneRules(niche: Niche, cast: Character[]) {
   return `- Each scene is one ${niche.sceneSeconds}-second AI-generated video clip.
-- "narration": what is spoken in that scene, in ${niche.language}, at most 25 words, so it fits ${niche.sceneSeconds} seconds.
+- ${
+    niche.format === "wordless"
+      ? `"narration": a shot note in ${niche.language}, at most 10 words, saying what the shot shows (e.g. "He laughs at the tiny sapling"). It is never spoken or shown.`
+      : `"narration": what is spoken in that scene, in ${niche.language}, at most 25 words, so it fits ${niche.sceneSeconds} seconds.`
+  }
 - "visualPrompt": in English, describe what is on screen (setting, action, expression, lighting). Refer to characters by name and do not describe their looks, they are added automatically. No on-screen text.
 - "camera": in English, one slow, smooth camera move (e.g. "slow push-in", "static medium shot"). Avoid fast action: it distorts the character.
+- "continuesPrevious": true only when the shot picks up exactly where the previous shot ends: same place, same characters, same moment, the action simply carrying on, with no cut to a new angle (the clip starts from the previous clip's last frame, which saves an image). false for scene 1, for any cut to another place, time, subject or framing, and after ${MAX_CHAINED_SCENES} chained shots in a row.
 - "characters": ${
     cast.length > 1
       ? `names of the cast members on screen, exactly as written in the cast list, at most ${MAX_CHARACTERS_PER_SCENE}.`
       : "an empty array."
   }`;
+}
+
+function storyEnds(niche: Niche, unit: "scene" | "beat") {
+  const first = unit === "scene" ? "Scene 1 must hook" : "Beat 1 hooks";
+  return niche.format === "wordless"
+    ? `${first} the viewer in the first 2 seconds with a situation that makes them guess. The last ${unit} is the payoff that makes the lesson land without a word; no call to action.`
+    : `${first} the viewer in the first 2 seconds. The last ${unit} ends with a call to action.`;
 }
 
 /** The whole script in one reply, for scripts up to SCRIPT_PART_SCENES scenes. */
@@ -126,7 +165,7 @@ ${brief(input)}
 # Hard constraints
 - Exactly ${niche.sceneCount} scenes.
 ${sceneRules(niche, input.cast)}
-- Scene 1 must hook the viewer in the first 2 seconds. The last scene ends with a call to action.
+- ${storyEnds(niche, "scene")}
 
 # Output
 Reply with ONLY this JSON object, no markdown, no explanation:
@@ -143,7 +182,7 @@ ${brief(input)}
 # Hard constraints
 - Exactly ${niche.sceneCount} beats, one per ${niche.sceneSeconds}-second scene, in story order.
 - Each beat: one English sentence of at most 15 words saying what happens and what the scene reveals.
-- Beat 1 hooks the viewer in the first 2 seconds. The last beat ends with a call to action.
+- ${storyEnds(niche, "beat")}
 
 # Output
 Reply with ONLY this JSON object, no markdown, no explanation:
@@ -208,7 +247,7 @@ ${
 
 # Output
 Reply with ONLY this JSON object, no markdown, no explanation:
-{"title": "...", "scenes": [${SCENE_SHAPE}]}`;
+{"title": "...", "scenes": [${AMBIENT_SCENE_SHAPE}]}`;
 }
 
 export function buildRepairPrompt(raw: string, error: string, shape: string) {
@@ -216,6 +255,111 @@ export function buildRepairPrompt(raw: string, error: string, shape: string) {
 Fix it and reply with ONLY the corrected JSON object, nothing else.
 
 ${raw}`;
+}
+
+/**
+ * What Muse's content filter turned down in our own productions (Oct 2026). Muse answers these
+ * with "the video didn't get made" and remembers the request, so the same words fail again.
+ */
+const MUSE_DECLINES = `- An animal catching, biting, killing, eating or dragging prey; the end of a hunt ("claws catch the target"); carcasses, kills, scavengers feeding.
+- Starving, thin or sick animals or people ("ribs showing"), injury, blood, wounds, pain, crying in pain, collapse, death.
+- Menace and dread: a predator lurking or stalking someone, creeping horror, a threat about to strike.
+- Weapons, fights, fire or danger to life.
+- Children, or cartoon characters drawn so that they read as children.
+- A character seeing a copy of himself (on a screen, in a reflection, a double).
+- Real brands, products, logos, public figures, readable text on screens or signs.`;
+
+const SHOT_FIELDS = '{"narration": string, "visualPrompt": string, "camera": string}';
+
+/** Scenes the screening pass rewrote, numbered from 1; scenes it left alone are not listed. */
+export const screenSchema = z.object({
+  changes: z
+    .array(
+      z.object({
+        scene: z.number().int().min(1),
+        narration: z.string().min(1),
+        visualPrompt: z.string().min(1),
+        camera: z.string().default(""),
+      }),
+    ),
+  // No default: parseReply keeps the last object that parses, and with one every inner
+  // change object would parse as "no changes".
+});
+
+export const SCREEN_SHAPE = `{"changes": [{"scene": number, "narration": string, "visualPrompt": string, "camera": string}]}`;
+
+type Shot = Pick<Scene, "narration" | "visualPrompt" | "camera">;
+
+function shotRules(niche: Niche) {
+  return `- Keep each scene's story beat, characters, place, light and style. Change only what the filter would decline: show the moment before or after, imply instead of showing, make it calm or comic.
+- "narration" stays in ${niche.language} and the same length; ${
+    niche.format === "wordless" ? "it is a short shot note that is never spoken" : "it is spoken over the clip, so keep it natural"
+  }. It is sent to the video model too, so it must pass the filter as well.
+- "camera" is one short camera move; change it too, since the model refuses a request it has already refused.`;
+}
+
+/**
+ * One pass over a fresh script before anyone sees it: rewrites only the scenes Muse's filter
+ * would likely decline, so no clip tokens are spent on a refusal.
+ */
+export function buildScreenPrompt(niche: Niche, shots: Shot[]) {
+  return `You check video scripts before they go to an AI video model with a strict content filter. Reply with JSON only.
+
+# What the filter declines
+${MUSE_DECLINES}
+
+# Niche
+${niche.name}: ${niche.description}
+
+# Scenes
+${shots.map((s, i) => `${i + 1}. narration: ${s.narration}\n   visual: ${s.visualPrompt}\n   camera: ${s.camera}`).join("\n")}
+
+# Rules
+- The filter is much stricter than a normal content policy: it declines anything that even touches a line above, in the narration as well as the visual, including documentary wildlife and comic scenes. When a scene touches a line, list it.
+- Examples it declined: "Its claws catch the target. The chase is finally over."; "a cheetah half hidden in the grass, ribs showing in the sun"; "hyenas tearing at the kill while vultures wait"; "a predator lurking under the dark water".
+- List ONLY those scenes, rewritten. Leave the others out; scenes that touch no line need no change.
+${shotRules(niche)}
+
+# Output
+Reply with ONLY this JSON object, no markdown, no explanation:
+${SCREEN_SHAPE}`;
+}
+
+export const rewriteSchema = z.object({
+  narration: z.string().min(1),
+  visualPrompt: z.string().min(1),
+  camera: z.string().default(""),
+});
+
+export const REWRITE_SHAPE = SHOT_FIELDS;
+
+/** Rewrites one scene that Muse declined, using Muse's own reply as the reason. */
+export function buildRewritePrompt(input: { niche: Niche; shot: Shot; reply: string; step: "image" | "video" }) {
+  const { niche, shot, reply, step } = input;
+  return `An AI ${step} model with a strict content filter declined this scene. Rewrite it so it passes. Reply with JSON only.
+
+# The model's reply
+${reply.slice(0, 1500)}
+
+# What the filter declines
+${MUSE_DECLINES}
+
+# Niche
+${niche.name}: ${niche.description}
+Visual style: ${niche.visualStyle}
+
+# The scene
+narration: ${shot.narration}
+visual: ${shot.visualPrompt}
+camera: ${shot.camera}
+
+# Rules
+- If the reply suggests a direction, follow it as long as it keeps the story beat.
+${shotRules(niche)}
+
+# Output
+Reply with ONLY this JSON object, no markdown, no explanation:
+${SHOT_FIELDS}`;
 }
 
 export const postsSchema = z.object({
@@ -253,8 +397,14 @@ export function buildPostsPrompt(input: {
   const minutes = Math.max(1, Math.round(input.durationSeconds / 60));
   const vertical = aspectRatio === "9:16";
   const ambient = niche.format === "ambient";
+  const wordless = niche.format === "wordless";
   const script = narration.map((line, i) => `${i + 1}. ${line}`).join("\n");
-  const length = minutes >= 60 ? `${Math.floor(minutes / 60)} h ${minutes % 60} min` : `${minutes} min`;
+  const length =
+    input.durationSeconds < 60
+      ? `${Math.round(input.durationSeconds)} s`
+      : minutes >= 60
+        ? `${Math.floor(minutes / 60)} h ${minutes % 60} min`
+        : `${minutes} min`;
   return `You are a social media manager who writes captions that get videos found and watched. Reply with JSON only.
 
 # Video
@@ -269,14 +419,19 @@ ${
 # What the video is
 A looping ambient visual played under a soundtrack, for studying, working, relaxing or sleeping. There is no narration and no story. The shots it loops through:
 ${script}`
-    : `
+    : wordless
+      ? `
+# Shots, numbered by scene
+The video has no words: nobody speaks and no text appears. The story is told by these shots alone:
+${script}`
+      : `
 # Narration, numbered by scene
 ${script}`
 }
 
 # Rules
 - Write everything in ${niche.language}, for viewers of that language.
-- Be accurate to the ${ambient ? "shots and the place" : "narration"}: no claims the video does not make, no fake urgency, no clickbait the video does not pay off.
+- Be accurate to the ${ambient ? "shots and the place" : wordless ? "shots" : "narration"}: no claims the video does not make, no fake urgency, no clickbait the video does not pay off.
 ${
   ambient
     ? `- youtube.title: at most 90 characters, in the style of ambience channels: the place and mood first, then what it is for and the length, e.g. "Rainy Night Café ☕ Soft Jazz & Rain Sounds for Study, Sleep (${length})". At most 2 emoji.
@@ -465,7 +620,7 @@ export function buildVideoPrompt(input: {
       // The clip loops under a soundtrack: steady motion from the first frame to the last.
       "Animate only what is already in the first frame: do not add, remove or replace any person, animal, vehicle or object.",
       "Gentle, continuous ambient motion that stays the same throughout; nothing starts, stops, enters or leaves the frame. The last frame should look much like the first.",
-      "No speech, no music. No on-screen text or subtitles.",
+      "No speech, no music. No on-screen text, subtitles, logos or watermarks.",
     ]
       .filter(Boolean)
       .join(" ");
@@ -475,14 +630,18 @@ export function buildVideoPrompt(input: {
     scene.camera && `Camera: ${scene.camera}.`,
     niche.visualStyle && `Visual style: ${niche.visualStyle}.`,
     names && `Keep ${names} looking exactly like in the first frame.`,
-    niche.narratorVoiceId
-      ? // The narrator voice is added at render time; any speech here would talk over it.
-        "Natural ambient sound only: no speech, no narration, no music."
-      : speaker
-        ? `${speaker.name} says in ${niche.language}: "${scene.narration}"`
-        : // Spelled out so Muse does not put a presenter in frame or make the animals lip-sync.
-          `Off-screen voice-over narration in ${niche.language}${niche.tone ? ` (voice: ${niche.tone})` : ""}, nobody on screen speaks: "${scene.narration}"`,
-    "Smooth, slow motion. No on-screen text or subtitles.",
+    niche.format === "wordless"
+      ? "Nobody speaks: no speech, no dialogue, no narration, no music. Natural sound effects only."
+      : niche.narratorVoiceId
+        ? // The narrator voice is added at render time; any speech here would talk over it.
+          "Natural ambient sound only: no speech, no narration, no music."
+        : speaker
+          ? `${speaker.name} says in ${niche.language}: "${scene.narration}"`
+          : // Spelled out so Muse does not put a presenter in frame or make the animals lip-sync.
+            `Off-screen voice-over narration in ${niche.language}${niche.tone ? ` (voice: ${niche.tone})` : ""}, nobody on screen speaks: "${scene.narration}"`,
+    // Muse still burns the voice-over in as subtitles now and then, and has drawn a broadcaster's
+    // logo into a wildlife shot (Oct 2026), so both are named outright.
+    "Smooth, slow motion. No on-screen text of any kind: no subtitles, no captions, no titles, no logos, no watermarks, no TV channel bug.",
   ]
     .filter(Boolean)
     .join(" ");

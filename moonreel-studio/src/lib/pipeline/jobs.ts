@@ -8,6 +8,8 @@ import {
   scenes,
   shorts,
   type Character,
+  type Niche,
+  type Scene,
   type SocialPosts,
   type ThumbnailSpec,
 } from "@/db/schema";
@@ -26,15 +28,22 @@ import {
   buildOutlinePrompt,
   buildPostsPrompt,
   buildRepairPrompt,
+  buildRewritePrompt,
+  buildScreenPrompt,
   buildScriptPartPrompt,
   buildScriptPrompt,
   buildShortsPrompt,
   buildThumbnailPrompt,
   buildVideoPrompt,
+  limitChains,
   MAX_CHARACTERS_PER_SCENE,
   outlineSchema,
   parseReply,
   POSTS_SHAPE,
+  REWRITE_SHAPE,
+  rewriteSchema,
+  SCREEN_SHAPE,
+  screenSchema,
   postsSchema,
   type PostsReply,
   SCRIPT_PART_SCENES,
@@ -45,7 +54,7 @@ import {
   shortsPlanSchema,
   type ShortsPlan,
 } from "./prompts";
-import { cameraStillness, mediaDuration, renderFinal, renderLoop } from "./render";
+import { cameraStillness, extractLastFrame, mediaDuration, renderFinal, renderLoop } from "./render";
 import { captionCues, renderShort, SHORT_MAX_SECONDS, SHORT_MIN_SECONDS } from "./shorts";
 import { composeThumbnail, THUMBNAIL_STYLES, type ThumbnailStyle } from "./thumbnail";
 import { synthesizeNarration } from "./voiceover";
@@ -61,8 +70,9 @@ async function withRetry<T>(label: string, fn: () => Promise<T>, attempts = 2): 
     try {
       return await fn();
     } catch (err) {
-      // The account may not make videos at all; asking again only teaches Muse to stop trying.
-      if (err instanceof MuseRefusedError && isRegionBlock(err.reply)) throw err;
+      // Muse refuses the same request again (it remembers it) and every refusal costs tokens;
+      // a region block will not lift either. Refusals are rewritten instead (see withRewrite).
+      if (err instanceof MuseRefusedError) throw err;
       lastErr = err;
       console.warn(`[${label}] attempt ${i}/${attempts} failed: ${message(err)}`);
     }
@@ -214,6 +224,31 @@ async function writeScript(input: Parameters<typeof buildScriptPrompt>[0]): Prom
   return { title: outline.title, scenes };
 }
 
+/**
+ * Rewrites the scenes Muse's content filter would likely decline, in one gateway turn, before
+ * the script is shown. Skipped without the gateway (it would spend Muse tokens); a failed
+ * check keeps the script as written.
+ */
+async function screenScript(niche: Niche, script: Script): Promise<Script> {
+  if (!gatewayConfigured()) return script;
+  try {
+    const { changes } = await chatJson("screen", buildScreenPrompt(niche, script.scenes), screenSchema, SCREEN_SHAPE);
+    if (changes.length === 0) return script;
+    const byIndex = new Map(changes.map((c) => [c.scene - 1, c]));
+    console.info(`[screen] rewrote scene(s) ${changes.map((c) => c.scene).join(", ")} for Muse's filter`);
+    return {
+      ...script,
+      scenes: script.scenes.map((s, i) => {
+        const c = byIndex.get(i);
+        return c ? { ...s, narration: c.narration, visualPrompt: c.visualPrompt, camera: c.camera } : s;
+      }),
+    };
+  } catch (err) {
+    console.warn(`[screen] skipped: ${message(err)}`);
+    return script;
+  }
+}
+
 export async function generateScript(projectId: string) {
   const project = await db.query.projects.findFirst({
     where: eq(projects.id, projectId),
@@ -223,7 +258,7 @@ export async function generateScript(projectId: string) {
   const cast = castOf(project);
 
   try {
-    const script = await writeScript({
+    const written = await writeScript({
       // A video may ask for more or fewer scenes than its niche; the prompts read it from here.
       niche: { ...project.niche, sceneCount: project.sceneCount ?? project.niche.sceneCount },
       cast,
@@ -231,6 +266,12 @@ export async function generateScript(projectId: string) {
       aspectRatio: project.aspectRatio,
       placeReference: !!project.referenceImagePath,
     });
+    const script = await screenScript(project.niche, written);
+
+    const chained =
+      project.niche.format === "ambient"
+        ? script.scenes.map(() => false)
+        : limitChains(script.scenes.map((s) => s.continuesPrevious));
 
     await db.transaction(async (tx) => {
       await tx.delete(scenes).where(eq(scenes.projectId, projectId));
@@ -241,6 +282,7 @@ export async function generateScript(projectId: string) {
           narration: s.narration,
           visualPrompt: s.visualPrompt,
           camera: s.camera,
+          continuesPrevious: chained[index],
           characterIds: castIdsFor(s.characters, cast),
         })),
       );
@@ -303,6 +345,26 @@ async function sharedKeyframe(projectId: string): Promise<string | "wait"> {
   return "wait";
 }
 
+// How long a chained shot waits before checking again for the previous clip.
+const CHAINED_CLIP_WAIT_S = 120;
+
+/**
+ * A chained shot's first frame: the previous scene's last frame, saved as this scene's keyframe.
+ * Returns "wait" while the previous clip is still being made, and null when there is none to
+ * wait for (the previous scene failed), so the shot draws its own keyframe instead.
+ */
+async function chainedKeyframe(projectId: string, index: number, prefix: string): Promise<string | "wait" | null> {
+  const previous = await db.query.scenes.findFirst({
+    where: and(eq(scenes.projectId, projectId), eq(scenes.index, index - 1)),
+    columns: { clipPath: true, status: true },
+  });
+  if (!previous || previous.status === "failed") return null;
+  if (previous.status !== "done" || !previous.clipPath) return "wait";
+  const key = `${prefix}-keyframe.jpg`;
+  await extractLastFrame(resolveKey(previous.clipPath), resolveKey(key));
+  return key;
+}
+
 // This many clips failing in a row, with none made in between, means Muse cannot make videos
 // right now (allowance used up, account blocked) rather than that one scene is a problem.
 const CLIP_FAILURE_STREAK = 3;
@@ -317,6 +379,34 @@ async function clipsKeepFailing(projectId: string) {
     .from(scenes)
     .where(eq(scenes.projectId, projectId));
   return (row?.streak ?? 0) >= CLIP_FAILURE_STREAK;
+}
+
+/**
+ * Runs one Muse step. When Muse declines the content (not a region block), the scene is
+ * rewritten once through the gateway with Muse's reply as the reason, saved so the editor
+ * shows what was made, and the step runs again. A second refusal is thrown.
+ */
+async function withRewrite<S extends Scene, T>(
+  scene: S,
+  niche: Niche,
+  step: "image" | "video",
+  run: (scene: S) => Promise<T>,
+): Promise<{ result: T; scene: S }> {
+  try {
+    return { result: await run(scene), scene };
+  } catch (err) {
+    if (!(err instanceof MuseRefusedError) || isRegionBlock(err.reply) || !gatewayConfigured()) throw err;
+    const shot = await chatJson(
+      "rewrite",
+      buildRewritePrompt({ niche, shot: scene, reply: err.reply, step }),
+      rewriteSchema,
+      REWRITE_SHAPE,
+    );
+    console.warn(`[scene ${scene.index + 1}] Muse declined the ${step}; trying a rewritten scene: ${shot.visualPrompt}`);
+    await db.update(scenes).set(shot).where(eq(scenes.id, scene.id));
+    const rewritten = { ...scene, ...shot };
+    return { result: await run(rewritten), scene: rewritten };
+  }
 }
 
 /** Moves a scene to its next step unless it was paused meanwhile; false when it was. */
@@ -347,6 +437,8 @@ export async function produceScene(sceneId: string) {
   const provider = getProvider();
   const prefix = `projects/${project.id}/scenes/${String(scene.index).padStart(2, "0")}`;
 
+  // The scene as last sent to Muse; a declined step rewrites it (see withRewrite).
+  let shot = scene;
   try {
     let keyframePath = scene.keyframePath;
     if (!keyframePath && niche.format === "ambient" && niche.fixedCamera && scene.index > 0) {
@@ -358,22 +450,39 @@ export async function produceScene(sceneId: string) {
       keyframePath = shared;
       await db.update(scenes).set({ keyframePath }).where(eq(scenes.id, sceneId));
     }
+    if (!keyframePath && scene.continuesPrevious && scene.index > 0 && niche.format !== "ambient") {
+      const chained = await chainedKeyframe(project.id, scene.index, prefix);
+      if (chained === "wait") {
+        await enqueueScenes([sceneId], { startAfterSeconds: CHAINED_CLIP_WAIT_S });
+        return;
+      }
+      if (chained) {
+        keyframePath = chained;
+        await db.update(scenes).set({ keyframePath }).where(eq(scenes.id, sceneId));
+      } else {
+        console.warn(`[scene ${scene.index + 1}] previous scene failed; drawing a keyframe instead of chaining`);
+      }
+    }
     if (!keyframePath) {
       if (!(await advance(sceneId, "keyframe"))) return;
       const reference = await imageReference(project, onScreen);
-      const image = await withRetry("keyframe", () =>
-        provider.generateImage({
-          prompt: buildKeyframePrompt({
-            scene,
-            niche,
-            characters: onScreen,
-            board: reference.board,
-            placeReference: !!project.referenceImagePath,
+      const drawn = await withRewrite(shot, niche, "image", (s) =>
+        withRetry("keyframe", () =>
+          provider.generateImage({
+            prompt: buildKeyframePrompt({
+              scene: s,
+              niche,
+              characters: onScreen,
+              board: reference.board,
+              placeReference: !!project.referenceImagePath,
+            }),
+            aspectRatio: project.aspectRatio,
+            referenceImage: reference.image,
           }),
-          aspectRatio: project.aspectRatio,
-          referenceImage: reference.image,
-        }),
+        ),
       );
+      shot = drawn.scene;
+      const image = drawn.result;
       keyframePath = await saveFile(`${prefix}-keyframe${image.ext}`, image.data);
       await db.update(scenes).set({ keyframePath }).where(eq(scenes.id, sceneId));
     }
@@ -382,20 +491,23 @@ export async function produceScene(sceneId: string) {
     if (!(await advance(sceneId, "video"))) return;
     const firstFrame = await toDataUrl(keyframePath);
     const makeClip = async () => {
-      const video = await withRetry("video", () =>
-        provider.generateVideo({
-          prompt: buildVideoPrompt({
-            scene,
-            niche,
-            characters: onScreen,
-            speaker: cast.length === 1 ? cast[0] : undefined,
+      const made = await withRewrite(shot, niche, "video", (s) =>
+        withRetry("video", () =>
+          provider.generateVideo({
+            prompt: buildVideoPrompt({
+              scene: s,
+              niche,
+              characters: onScreen,
+              speaker: cast.length === 1 ? cast[0] : undefined,
+            }),
+            aspectRatio: project.aspectRatio,
+            durationSeconds: niche.sceneSeconds,
+            firstFrame,
           }),
-          aspectRatio: project.aspectRatio,
-          durationSeconds: niche.sceneSeconds,
-          firstFrame,
-        }),
+        ),
       );
-      return saveFile(`${prefix}${video.ext}`, video.data);
+      shot = made.scene;
+      return saveFile(`${prefix}${made.result.ext}`, made.result.data);
     };
     let clipPath = await makeClip();
     if (niche.format === "ambient") {
@@ -476,8 +588,10 @@ export async function renderProject(projectId: string) {
         outFile: resolveKey(finalKey),
       });
     } else {
-      srtKey = `projects/${projectId}/captions.srt`;
-      const voiceId = project.niche.narratorVoiceId;
+      // A wordless video's scene notes are never spoken or shown, so it has no voice and no subtitles.
+      const wordless = project.niche.format === "wordless";
+      srtKey = wordless ? null : `projects/${projectId}/captions.srt`;
+      const voiceId = wordless ? null : project.niche.narratorVoiceId;
       const voices = voiceId
         ? await synthesizeNarration(voiceId, project.scenes.map((s) => s.narration))
         : [];
@@ -489,7 +603,7 @@ export async function renderProject(projectId: string) {
         })),
         aspectRatio: project.aspectRatio,
         outFile: resolveKey(finalKey),
-        srtFile: resolveKey(srtKey),
+        srtFile: srtKey ? resolveKey(srtKey) : undefined,
       });
     }
     await db

@@ -1,6 +1,7 @@
 import path from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { env } from "@/lib/env";
+import { isRegionBlock } from "@/lib/scene-errors";
 import type {
   GeneratedMedia,
   GenerationProvider,
@@ -116,6 +117,8 @@ export class Muse2ApiProvider implements GenerationProvider {
         if (reason.includes(TEXT_ONLY_MARKER)) {
           throw new MuseRefusedError(reason.slice(reason.indexOf(TEXT_ONLY_MARKER) + TEXT_ONLY_MARKER.length).replace(/^[\s:：]+/, ""));
         }
+        // muse2api keeps region-blocked accounts for images and says so when none may make videos.
+        if (isRegionBlock(reason)) throw new MuseRefusedError(reason);
         throw new MuseError(`Muse generation failed: ${task.error ?? "unknown error"}`);
       }
       await sleep(POLL_INTERVAL_MS);

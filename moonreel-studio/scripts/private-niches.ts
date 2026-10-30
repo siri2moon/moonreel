@@ -1,7 +1,7 @@
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
-import type { Niche } from "@/db/schema";
+import { nicheFormatEnum, type Niche } from "@/db/schema";
 import { env } from "@/lib/env";
 import { THUMBNAIL_STYLES } from "@/lib/thumbnail-styles";
 
@@ -20,7 +20,7 @@ export const nicheFileSchema = z.object({
   slug: z.string().regex(/^[a-z0-9-]+$/),
   name: z.string().min(1),
   icon: z.string().default("✦"),
-  format: z.enum(["story", "ambient"]).default("story"),
+  format: z.enum(nicheFormatEnum.enumValues).default("story"),
   fixedCamera: z.boolean().default(false),
   description: z.string().default(""),
   scriptInstructions: lines,

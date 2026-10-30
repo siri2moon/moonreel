@@ -85,6 +85,7 @@ export async function getProjectView(id: string) {
       narration: s.narration,
       visualPrompt: s.visualPrompt,
       camera: s.camera,
+      continuesPrevious: s.continuesPrevious,
       characterIds: s.characterIds,
       status: s.status,
       error: s.error,

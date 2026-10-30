@@ -18,8 +18,10 @@ export const aspectRatioEnum = pgEnum("aspect_ratio", ["9:16", "16:9"]);
 /**
  * "story": a narrated script, one clip per line. "ambient": a looping background for a
  * soundtrack the user uploads; scenes carry only a short shot note, nothing is spoken.
+ * "wordless": a story told by pictures alone (visual parables for Reels and Shorts); scenes
+ * carry a shot note, nothing is spoken and there are no subtitles.
  */
-export const nicheFormatEnum = pgEnum("niche_format", ["story", "ambient"]);
+export const nicheFormatEnum = pgEnum("niche_format", ["story", "ambient", "wordless"]);
 
 export const referenceStatusEnum = pgEnum("reference_status", [
   "none",
@@ -175,6 +177,11 @@ export const scenes = pgTable(
     status: sceneStatusEnum("status").notNull().default("pending"),
     keyframePath: text("keyframe_path"),
     clipPath: text("clip_path"),
+    /**
+     * The shot carries on from the previous one: its first frame is the previous clip's last
+     * frame, so no keyframe is drawn (one Muse call fewer). Never set on scene 1.
+     */
+    continuesPrevious: boolean("continues_previous").notNull().default(false),
     /** Cast members on screen in this shot, from the project's cast; empty means none. */
     characterIds: uuid("character_ids")
       .array()

@@ -124,6 +124,25 @@ function SceneCast({ value, onChange }: { value: string[]; onChange: (ids: strin
   );
 }
 
+/** Chains a shot to the one before it; not offered on scene 1 or for ambient shots. */
+function ContinuesPrevious({ value, onChange }: { value: boolean; onChange: (on: boolean) => void }) {
+  const { t } = useI18n();
+  return (
+    <label className="flex cursor-pointer items-start gap-3 rounded-xl frost p-3">
+      <input
+        type="checkbox"
+        checked={value}
+        onChange={(e) => onChange(e.target.checked)}
+        className="mt-0.5 size-4 accent-[#d6b783]"
+      />
+      <span>
+        <span className="block text-xs font-medium">{t.project.continuesPrevious}</span>
+        <span className="block text-xs leading-relaxed text-subtle">{t.project.continuesPreviousHint}</span>
+      </span>
+    </label>
+  );
+}
+
 /** Label and word counter of the narration field; ambient shot notes have no word budget. */
 function NarrationLabel({ text }: { text: string }) {
   const { t } = useI18n();
@@ -141,7 +160,13 @@ function NarrationLabel({ text }: { text: string }) {
 }
 
 function toDraft(scenes: Scene[]): SceneInput[] {
-  return scenes.map(({ narration, visualPrompt, camera, characterIds }) => ({ narration, visualPrompt, camera, characterIds }));
+  return scenes.map(({ narration, visualPrompt, camera, continuesPrevious, characterIds }) => ({
+    narration,
+    visualPrompt,
+    camera,
+    continuesPrevious,
+    characterIds,
+  }));
 }
 
 /** The script is editable until production has produced anything. */
@@ -681,6 +706,12 @@ function ScriptEditor(props: {
                   </label>
                 </div>
                 <SceneCast value={scene.characterIds ?? []} onChange={(characterIds) => update(i, { characterIds })} />
+                {i > 0 && !ambient && (
+                  <ContinuesPrevious
+                    value={scene.continuesPrevious ?? false}
+                    onChange={(continuesPrevious) => update(i, { continuesPrevious })}
+                  />
+                )}
               </div>
             </Card>
           );
@@ -738,7 +769,13 @@ function Production({
         <Working
           icon={<Film className="size-6" />}
           title={t.project.renderingTitle}
-          body={view.niche.format === "ambient" ? t.project.renderingBodyLoop : t.project.renderingBody}
+          body={
+            view.niche.format === "ambient"
+              ? t.project.renderingBodyLoop
+              : view.niche.format === "wordless"
+                ? t.project.renderingBodyWordless
+                : t.project.renderingBody
+          }
         />
       )}
 
@@ -786,7 +823,8 @@ function Production({
         <>
           <ThumbnailPanel view={view} pending={pending} onSubmit={onThumbnail} />
           <PostsPanel view={view} pending={pending} onRegenerate={onRegeneratePosts} />
-          {view.niche.format !== "ambient" && (
+          {/* Shorts are cut from narrated videos; a wordless video is already short. */}
+          {view.niche.format === "story" && (
             <ShortsPanel view={view} pending={pending} onCut={onCutShorts} onSave={onShort} />
           )}
         </>
@@ -1429,16 +1467,18 @@ function SceneEditDialog({
     narration: scene.narration,
     visualPrompt: scene.visualPrompt,
     camera: scene.camera,
+    continuesPrevious: scene.continuesPrevious,
     characterIds: scene.characterIds,
   });
   useEffect(() => {
     ref.current?.showModal();
   }, []);
 
-  // A new cast in the shot needs a new first frame, just like a new visual.
+  // A new cast in the shot needs a new first frame, just like a new visual or a new chain link.
   const visualChanged =
     draft.visualPrompt.trim() !== scene.visualPrompt.trim() ||
-    (draft.characterIds ?? []).join() !== scene.characterIds.join();
+    (draft.characterIds ?? []).join() !== scene.characterIds.join() ||
+    !!draft.continuesPrevious !== scene.continuesPrevious;
   const valid = draft.narration.trim() !== "" && draft.visualPrompt.trim() !== "";
   const submit = (newKeyframe: boolean) => {
     onSubmit(draft, newKeyframe);
@@ -1493,6 +1533,12 @@ function SceneEditDialog({
           />
         </label>
         <SceneCast value={draft.characterIds ?? []} onChange={(characterIds) => setDraft((d) => ({ ...d, characterIds }))} />
+        {scene.index > 0 && !ambient && (
+          <ContinuesPrevious
+            value={draft.continuesPrevious ?? false}
+            onChange={(continuesPrevious) => setDraft((d) => ({ ...d, continuesPrevious }))}
+          />
+        )}
 
         {visualChanged && <p className="text-xs text-gold-light">{t.project.visualChanged}</p>}
 

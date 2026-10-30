@@ -10,7 +10,16 @@ import { db } from "@/db";
 import { NICHE_COOKIE } from "@/lib/active-niche";
 import { hasLocale, LOCALE_COOKIE } from "@/i18n/config";
 import { getActionDictionary } from "@/i18n/action";
-import { characters, nicheCharacters, niches, projectCharacters, projects, scenes, shorts } from "@/db/schema";
+import {
+  characters,
+  nicheCharacters,
+  nicheFormatEnum,
+  niches,
+  projectCharacters,
+  projects,
+  scenes,
+  shorts,
+} from "@/db/schema";
 import {
   enqueueCharacterReference,
   enqueuePosts,
@@ -49,7 +58,7 @@ const nicheSchema = z.object({
     .min(1)
     .regex(/^[a-z0-9-]+$/, "slug: lowercase letters, numbers and hyphens only"),
   icon: z.string().trim().min(1).max(8).default("✦"),
-  format: z.enum(["story", "ambient"]).default("story"),
+  format: z.enum(nicheFormatEnum.enumValues).default("story"),
   // An unchecked checkbox is simply missing from the form data.
   fixedCamera: z
     .string()
@@ -252,6 +261,7 @@ const sceneInputSchema = z.array(
     narration: z.string().trim().min(1),
     visualPrompt: z.string().trim().min(1),
     camera: z.string().trim().default(""),
+    continuesPrevious: z.boolean().default(false),
     characterIds: z.array(z.uuid()).max(MAX_CAST).default([]),
   }),
 );
@@ -265,7 +275,8 @@ async function replaceScenes(projectId: string, title: string, input: SceneInput
     await tx.update(projects).set({ title: title.trim() || "Untitled" }).where(eq(projects.id, projectId));
     return tx
       .insert(scenes)
-      .values(parsed.map((s, index) => ({ ...s, projectId, index })))
+      // Scene 1 has nothing before it to carry on from.
+      .values(parsed.map((s, index) => ({ ...s, continuesPrevious: index > 0 && s.continuesPrevious, projectId, index })))
       .returning({ id: scenes.id });
   });
 }

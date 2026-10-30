@@ -3,6 +3,7 @@
 import {
   BookOpen,
   Clapperboard,
+  Drama,
   ImageIcon,
   Monitor,
   Palette,
@@ -142,9 +143,10 @@ export function NicheForm({
       >
         <fieldset className="flex flex-col gap-2">
           <legend className="mb-2 text-[13px] font-medium">{f.format}</legend>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid gap-3 sm:grid-cols-3">
             {[
               { value: "story" as const, Icon: BookOpen },
+              { value: "wordless" as const, Icon: Drama },
               { value: "ambient" as const, Icon: Repeat },
             ].map(({ value, Icon }) => (
               <label
@@ -201,8 +203,8 @@ export function NicheForm({
             <input name="language" required defaultValue={niche?.language ?? "Vietnamese"} className={inputClass} />
           </Field>
         </div>
-        {/* Ambient videos play the uploaded soundtrack; there is nothing to narrate. */}
-        <Field label={f.narratorVoice} hint={f.narratorVoiceHint} className={format === "ambient" ? "hidden!" : ""}>
+        {/* Only story videos are narrated: ambient ones play the uploaded soundtrack, wordless ones have no words. */}
+        <Field label={f.narratorVoice} hint={f.narratorVoiceHint} className={format === "story" ? "" : "hidden!"}>
           <input
             name="narratorVoiceId"
             defaultValue={niche?.narratorVoiceId ?? ""}

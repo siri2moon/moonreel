@@ -88,7 +88,8 @@ export async function renderFinal(input: {
   clips: { file: string; narration: string; voice?: string }[];
   aspectRatio: AspectRatio;
   outFile: string;
-  srtFile: string;
+  /** Where to write the subtitles; without it the video has no subtitle track. */
+  srtFile?: string;
 }) {
   const { clips, aspectRatio, outFile, srtFile } = input;
   const { w, h } = FRAME[aspectRatio];
@@ -102,7 +103,7 @@ export async function renderFinal(input: {
     return voice ? Math.max(info.duration, VOICE_LEAD_IN_S + voice.duration + VOICE_TAIL_S) : info.duration;
   });
 
-  await writeFile(srtFile, buildSrt(clips.map((c) => c.narration), durations));
+  if (srtFile) await writeFile(srtFile, buildSrt(clips.map((c) => c.narration), durations));
 
   const args: string[] = ["-y", "-hide_banner"];
   for (const c of clips) args.push("-i", c.file);
@@ -122,7 +123,7 @@ export async function renderFinal(input: {
     voiceInput.set(i, nextInput++);
   });
   const srtInput = nextInput;
-  args.push("-i", srtFile);
+  if (srtFile) args.push("-i", srtFile);
 
   const filters: string[] = [];
   const concatInputs: string[] = [];
@@ -155,13 +156,13 @@ export async function renderFinal(input: {
     "-filter_complex", filters.join(";"),
     "-map", "[v]",
     "-map", "[a]",
-    "-map", `${srtInput}:s`,
+    ...(srtFile ? ["-map", `${srtInput}:s`] : []),
     "-c:v", "libx264",
     "-preset", "medium",
     "-crf", "18",
     "-c:a", "aac",
     "-b:a", "192k",
-    "-c:s", "mov_text",
+    ...(srtFile ? ["-c:s", "mov_text"] : []),
     "-movflags", "+faststart",
     outFile,
   );
@@ -195,6 +196,14 @@ export async function cameraStillness(file: string) {
     }),
   );
   return Math.min(...scores);
+}
+
+/**
+ * Writes the clip's last frame to `out` as a JPEG. ffmpeg keeps overwriting the one image while
+ * it decodes the final half second, so what is left is the very last frame.
+ */
+export async function extractLastFrame(file: string, out: string) {
+  await run("ffmpeg", ["-hide_banner", "-loglevel", "error", "-y", "-sseof", "-0.5", "-i", file, "-update", "1", "-q:v", "2", out]);
 }
 
 export async function mediaDuration(file: string) {
