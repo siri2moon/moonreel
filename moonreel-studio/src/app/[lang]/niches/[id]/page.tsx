@@ -21,7 +21,11 @@ async function EditNiche({ params }: { params: PageProps<"/[lang]/niches/[id]">[
   const [niche, characterRows, t] = await Promise.all([
     db.query.niches.findFirst({
       where: eq(niches.id, id),
-      with: { defaultCast: { orderBy: [asc(nicheCharacters.position)], columns: { characterId: true } } },
+      with: {
+        defaultCast: { orderBy: [asc(nicheCharacters.position)], columns: { characterId: true } },
+        // The name only: the Page's access token stays on the server.
+        facebookPage: { columns: { name: true, instagramUsername: true, instagramId: true } },
+      },
     }),
     getCastOptions(),
     getDictionary(),
@@ -43,6 +47,12 @@ async function EditNiche({ params }: { params: PageProps<"/[lang]/niches/[id]">[
         niche={niche}
         characters={characterRows}
         defaultCastIds={niche.defaultCast.map((c) => c.characterId)}
+        facebookPageName={niche.facebookPage?.name ?? null}
+        instagramAccount={
+          niche.facebookPage?.instagramId
+            ? `@${niche.facebookPage.instagramUsername ?? niche.facebookPage.instagramId}`
+            : null
+        }
       />
     </>
   );

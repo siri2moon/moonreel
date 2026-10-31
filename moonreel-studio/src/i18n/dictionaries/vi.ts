@@ -260,6 +260,25 @@ const vi: Dictionary = {
       cancel: "Huỷ",
       relatedHint: "Sau khi đăng, vào YouTube Studio đặt Video liên quan (Related video) là video dài để người xem bấm sang.",
     },
+    reel: {
+      platforms: { facebook: "Facebook", instagram: "Instagram" },
+      guide: "Hướng dẫn cài đặt →",
+      heading: (platform: string, account: string) => `${platform} Reel trên ${account}`,
+      notConnected: "Kết nối Page Facebook trong cài đặt của ngách này để đăng video này thành reel ngay tại đây.",
+      noInstagram:
+        "Page Facebook của ngách này chưa liên kết tài khoản Instagram, hoặc token chưa có quyền instagram_basic và instagram_content_publish.",
+      uploading: (platform: string) => `Đang tải lên ${platform}…`,
+      scheduled: (when: string) => `Đã hẹn giờ lúc ${when}. Đổi hoặc huỷ trong Meta Business Suite.`,
+      scheduledHere: (when: string) =>
+        `MoonReel sẽ đăng lúc ${when} (API của Instagram không hẹn giờ được). Hãy để worker chạy.`,
+      cancel: "Huỷ",
+      hintInstagram: "Có gắn nhãn nội dung AI và hiện cả trên lưới bài. API không thêm được nhạc từ thư viện của Instagram.",
+      published: "Đã đăng. Xem trong Meta Business Suite.",
+      when: "Thời điểm công khai (giờ máy bạn)",
+      schedule: "Hẹn giờ reel",
+      postNow: "Đăng ngay",
+      hint: "Có gắn nhãn nội dung AI. API không thêm được nhạc từ thư viện của Facebook: cần nhạc thì đăng video này từ app.",
+    },
     posts: {
       eyebrow: "Caption",
       heading: "Sẵn sàng đăng lên các nền tảng",
@@ -359,6 +378,17 @@ const vi: Dictionary = {
     visualStyleHint: "Ví dụ: clean modern 3D animation, soft warm lighting, pastel colors",
     defaultCharacter: "Dàn nhân vật mặc định",
     defaultCharacterHint: "Được chọn sẵn theo đúng thứ tự khi tạo video mới trong ngách này. Người đầu tiên là nhân vật chính.",
+    facebook: "Facebook & Instagram Reels",
+    facebookHint: "Đăng video dọc và Short của ngách này thành reel lên Page Facebook và tài khoản Instagram liên kết với Page, đăng ngay hoặc hẹn giờ.",
+    facebookPageId: "ID Page Facebook",
+    facebookPageIdHint: "Chỉ gồm chữ số: Page → Giới thiệu → Tính minh bạch của Trang, hoặc trong link trang.",
+    facebookConnected: (name: string) => `Đã kết nối với ${name}.`,
+    instagramConnected: (account: string) => `Reel Instagram sẽ đăng lên ${account}.`,
+    instagramMissing: "Chưa thấy tài khoản Instagram: liên kết Instagram với Page rồi dán token có quyền instagram_basic và instagram_content_publish.",
+    facebookGuide: "Cách lấy token Page, từng bước →",
+    facebookToken: "Page access token",
+    facebookTokenHint: "Cần quyền pages_show_list, pages_read_engagement, pages_manage_posts, pages_read_user_content và pages_manage_engagement (để gắn ảnh bìa), thêm instagram_basic và instagram_content_publish cho Instagram. README → Facebook Reels hướng dẫn lấy token không hết hạn.",
+    facebookTokenKeep: "Đã lưu. Để trống để giữ token cũ, hoặc dán token mới để thay.",
     thumbnail: "Thumbnail",
     thumbnailHint: "Một phong cách chung cho mọi video trong ngách, để người xem nhận ra kênh ngay từ cái nhìn đầu.",
     thumbnailStyle: "Mẫu",
@@ -388,6 +418,90 @@ const vi: Dictionary = {
     save: "Lưu cấu hình",
     create: "Tạo ngách",
   },
+  guide: {
+    metaTitle: "Kết nối Facebook & Instagram",
+    eyebrow: "Hướng dẫn",
+    title: "Lấy token Page Facebook",
+    description:
+      "MoonReel đăng reel qua API miễn phí của Meta, bằng app của chính bạn và một Page access token. Cài một lần cho mỗi Page, khoảng 10 phút, rồi đăng và hẹn giờ reel ngay trên trang video.",
+    warning:
+      "Ai có token Page đều đăng được lên Page của bạn. Đừng bao giờ dán token vào chat, issue hay ảnh chụp màn hình; MoonReel lưu nó trong database của bạn và không gửi xuống trình duyệt.",
+    step: (n: number) => `Bước ${n}`,
+    open: "Mở",
+    steps: [
+      {
+        title: "Tạo app Meta",
+        body: [
+          "Mở Meta for Developers → Ứng dụng của tôi → Tạo ứng dụng.",
+          "Chọn use case *Manage everything on your Page* (Quản lý mọi thứ trên Trang) và đặt tên tuỳ ý, ví dụ tên kênh.",
+          "Để app ở chế độ phát triển: khi đó app chỉ đăng được lên Page bạn quản lý, đủ cho MoonReel. Không cần nộp duyệt (App Review).",
+        ],
+        link: { label: "developers.facebook.com/apps", href: "https://developers.facebook.com/apps" },
+      },
+      {
+        title: "Thêm quyền cho app",
+        body: [
+          "Trong trang quản lý app, mở Use cases (Trường hợp sử dụng) và bấm Customize (Tuỳ chỉnh) cạnh use case của Page.",
+          "Thêm `pages_show_list`, `pages_read_engagement`, `pages_manage_posts`, `pages_read_user_content` và `pages_manage_engagement` (hai quyền cuối để gắn ảnh bìa). Trạng thái Ready for testing là đủ.",
+          "Muốn đăng Instagram: thêm use case Instagram API (đăng nhập bằng Facebook) với quyền `instagram_basic` và `instagram_content_publish`.",
+          "Graph API Explorer ở bước sau chỉ cho chọn quyền app đã có. Thiếu quyền nào ở đó nghĩa là chưa thêm ở bước này.",
+        ],
+      },
+      {
+        title: "Tạo token người dùng",
+        body: [
+          "Mở Graph API Explorer (Trình khám phá API Đồ thị), chọn app của bạn ở ô Ứng dụng trên Meta.",
+          "Ở ô Người dùng hoặc Trang chọn Lấy mã truy cập người dùng.",
+          "Thêm đủ các quyền ở bước 2 rồi bấm Generate Access Token. Đăng nhập và tick Page muốn đăng (và tài khoản Instagram của Page).",
+          "Token này chỉ sống 1–2 giờ, nên làm tiếp ngay.",
+        ],
+        link: { label: "Graph API Explorer", href: "https://developers.facebook.com/tools/explorer/" },
+      },
+      {
+        title: "Gia hạn token",
+        body: [
+          "Mở Access Token Debugger (Trình gỡ lỗi mã truy cập), dán token và bấm Gỡ lỗi.",
+          "Kéo xuống cuối bấm Gia hạn mã truy cập (Extend Access Token), nhập mật khẩu nếu được hỏi.",
+          "Copy token mới dài hơn hiện ra: đây là token người dùng dài hạn (khoảng 60 ngày).",
+        ],
+        link: { label: "Access Token Debugger", href: "https://developers.facebook.com/tools/debug/accesstoken/" },
+      },
+      {
+        title: "Lấy token riêng của Page",
+        body: [
+          "Quay lại Graph API Explorer, dán token dài hạn vào ô Mã truy cập.",
+          "Thay ô truy vấn bằng `me/accounts` rồi bấm Gửi.",
+          "Kết quả liệt kê mọi Page bạn quản lý. Trong khối của Page cần dùng, copy `id` và `access_token`.",
+          "Token Page lấy từ token dài hạn không hết hạn. Nó chỉ ngừng chạy khi bạn đổi mật khẩu Facebook, mất quyền quản trị Page hoặc xoá app.",
+        ],
+      },
+      {
+        title: "Dán vào MoonReel",
+        body: [
+          "Mở Ngách, sửa ngách sẽ đăng lên Page này, kéo xuống mục Facebook & Instagram Reels.",
+          "Dán `id` vào ô ID Page Facebook và `access_token` vào ô Page access token, rồi lưu.",
+          "MoonReel kiểm tra với Facebook. Form sẽ hiện Đã kết nối với tên Page, và tài khoản Instagram sẽ nhận reel.",
+          "Để đăng: mở một video dọc đã xong, vào phần Caption và chọn tab Facebook hoặc Instagram. Mỗi Short đã cắt xong cũng có các ô này.",
+        ],
+      },
+    ],
+    instagramTitle: "Trước khi đăng Instagram",
+    instagram: [
+      "Tài khoản Instagram phải là tài khoản chuyên nghiệp (Creator hoặc Business): Instagram → Cài đặt → Loại tài khoản và công cụ.",
+      "Tài khoản phải liên kết với Page Facebook: Page → Cài đặt → Tài khoản đã liên kết → Instagram, hoặc Meta Business Suite → Cài đặt.",
+      "API của Instagram không hẹn giờ được, nên MoonReel tự giữ reel Instagram đã hẹn và tải lên đúng giờ: hãy để worker chạy lúc đó. Reel Facebook thì được Facebook tự hẹn giờ.",
+    ],
+    troubleshootingTitle: "Khi gặp lỗi",
+    troubleshooting: [
+      { q: "Explorer không có quyền cần chọn", a: "Thêm quyền đó vào use case của app trước (bước 2), rồi tải lại Explorer." },
+      { q: "Chưa thấy tài khoản Instagram", a: "Chuyển tài khoản sang chuyên nghiệp, liên kết với Page, và kiểm tra token có `instagram_basic`. Sau đó lưu lại token trong form ngách." },
+      { q: "Facebook báo lỗi code 190", a: "Token hết hạn hoặc bị thu hồi, ví dụ sau khi đổi mật khẩu. Làm lại từ bước 3 đến 6." },
+      { q: "Facebook báo lỗi code 200 hoặc 10", a: "Token thiếu quyền. Tạo lại token với đủ các quyền ở bước 2." },
+      { q: "Ảnh bìa chưa được gắn", a: "Token cần `pages_read_user_content` và `pages_manage_engagement`. Bản thân reel vẫn đã đăng." },
+      { q: "Reel không có nhạc", a: "API không thêm được nhạc từ thư viện của Facebook và Instagram. Reel cần nhạc thư viện thì đăng bằng app." },
+    ],
+    back: "Về danh sách ngách",
+  },
   errors: {
     title: "Có lỗi xảy ra",
     retry: "Thử lại",
@@ -397,6 +511,7 @@ const vi: Dictionary = {
     nicheHasVideos: (n) => `Ngách này đang có ${n} video. Xoá các video đó trước khi xoá ngách.`,
     noReferenceImage: "Chưa chọn ảnh tham chiếu",
     noSoundtrack: "Hãy tải file âm thanh cho video lặp nền này",
+    reelScheduleRange: "Hẹn giờ reel từ 10 phút đến 29 ngày tính từ bây giờ.",
   },
 };
 

@@ -10,6 +10,7 @@ export const QUEUES = {
   projectThumbnail: "project-thumbnail",
   projectShorts: "project-shorts",
   shortRender: "short-render",
+  reelPost: "reel-post",
 } as const;
 
 export interface ScriptGenerateJob {
@@ -35,6 +36,17 @@ export interface ProjectShortsJob {
 }
 export interface ShortRenderJob {
   shortId: string;
+}
+/** A finished vertical video ("project") or one of its Shorts, posted as a reel. */
+export interface ReelPostJob {
+  platform: "facebook" | "instagram";
+  kind: "project" | "short";
+  id: string;
+  /**
+   * The publishAt the reel had when this job was queued. A job whose reel has since been
+   * rescheduled or cancelled finds a different value and does nothing.
+   */
+  publishAt: string | null;
 }
 
 const globalForBoss = globalThis as unknown as { boss?: Promise<PgBoss> };
@@ -76,6 +88,13 @@ async function createBoss() {
     policy: "short",
     retryLimit: 1,
     expireInSeconds: 15 * 60,
+  });
+  // Not retried by pg-boss: a second try after a partial upload would post the reel twice.
+  // Instagram reels wait here until their time, up to 29 days: kept longer than the 14-day default.
+  await boss.createQueue(QUEUES.reelPost, {
+    retryLimit: 0,
+    expireInSeconds: 30 * 60,
+    retentionSeconds: 30 * 24 * 60 * 60,
   });
   return boss;
 }
@@ -156,4 +175,11 @@ export async function enqueueShortRenders(shortIds: string[]) {
     QUEUES.shortRender,
     shortIds.map((shortId) => ({ data: { shortId } satisfies ShortRenderJob, singletonKey: shortId })),
   );
+}
+
+/** Queues a reel upload; an Instagram reel with a publish time waits in the queue until then. */
+export async function enqueueReelPost(job: ReelPostJob) {
+  const boss = await getBoss();
+  const startAfter = job.platform === "instagram" && job.publishAt ? new Date(job.publishAt) : undefined;
+  await boss.send(QUEUES.reelPost, job satisfies ReelPostJob, { startAfter });
 }

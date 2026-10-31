@@ -1,6 +1,6 @@
 "use server";
 
-import { and, count, eq, inArray } from "drizzle-orm";
+import { and, count, eq, inArray, sql, type SQL } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
@@ -12,6 +12,7 @@ import { hasLocale, LOCALE_COOKIE } from "@/i18n/config";
 import { getActionDictionary } from "@/i18n/action";
 import {
   characters,
+  facebookPages,
   nicheCharacters,
   nicheFormatEnum,
   niches,
@@ -19,9 +20,11 @@ import {
   projects,
   scenes,
   shorts,
+  type ReelPost,
 } from "@/db/schema";
 import {
   enqueueCharacterReference,
+  enqueueReelPost,
   enqueuePosts,
   enqueueRender,
   enqueueScenes,
@@ -31,6 +34,8 @@ import {
   enqueueThumbnail,
 } from "@/lib/queue";
 import { mediaDuration } from "@/lib/pipeline/render";
+import { fetchPage, REEL_SCHEDULE_MAX_MS, REEL_SCHEDULE_MIN_MS } from "@/lib/providers/facebook";
+import { fetchInstagramAccount } from "@/lib/providers/instagram";
 import { REFERENCE_KEY } from "@/lib/reference-image";
 import { MAX_PROJECT_SCENES } from "@/lib/pipeline/prompts";
 import { pauseScenes } from "@/lib/production";
@@ -86,6 +91,14 @@ const nicheSchema = z.object({
     .default("#FFC23D"),
   thumbnailBrand: z.string().trim().max(32).default(""),
   postsInstructions: z.string().trim().default(""),
+  facebookPageId: z
+    .string()
+    .trim()
+    .regex(/^\d*$/, "Facebook Page ID: digits only")
+    .default("")
+    .transform((v) => v || null),
+  // Write-only: left empty, the Page keeps the token it has.
+  facebookPageToken: z.string().trim().default(""),
 });
 
 async function setActiveNiche(id: string) {
@@ -103,8 +116,28 @@ export async function selectNiche(id: string) {
 }
 
 export async function saveNiche(id: string | null, formData: FormData) {
-  const { defaultCastIds, ...data } = nicheSchema.parse(Object.fromEntries(formData));
+  const { defaultCastIds, facebookPageToken, ...data } = nicheSchema.parse(Object.fromEntries(formData));
+  // Checked against Facebook before anything is saved, so a wrong token or Page ID never sticks.
+  const [page, instagram] =
+    facebookPageToken && data.facebookPageId
+      ? await Promise.all([
+          fetchPage(data.facebookPageId, facebookPageToken),
+          fetchInstagramAccount(data.facebookPageId, facebookPageToken),
+        ])
+      : [null, null];
   const nicheId = await db.transaction(async (tx) => {
+    if (page) {
+      const fields = {
+        name: page.name,
+        accessToken: facebookPageToken,
+        instagramId: instagram?.id ?? null,
+        instagramUsername: instagram?.username ?? null,
+      };
+      await tx
+        .insert(facebookPages)
+        .values({ id: page.id, ...fields })
+        .onConflictDoUpdate({ target: facebookPages.id, set: fields });
+    }
     const [row] = id
       ? await tx.update(niches).set(data).where(eq(niches.id, id)).returning({ id: niches.id })
       : await tx.insert(niches).values(data).returning({ id: niches.id });
@@ -486,6 +519,68 @@ export async function updateShort(projectId: string, shortId: string, input: Sho
     .set({ ...fields, ...(recut ? { status: "rendering" as const, error: null } : {}) })
     .where(eq(shorts.id, shortId));
   if (recut) await enqueueShortRenders([shortId]);
+  revalidatePath(`/projects/${projectId}`);
+}
+
+const reelSchema = z.object({
+  caption: z.string().trim().max(2200),
+  /** ISO time; null posts the reel right away. */
+  publishAt: z.iso.datetime().nullable(),
+});
+
+export type ReelInput = z.infer<typeof reelSchema>;
+export type ReelPlatform = "facebook" | "instagram";
+export type ReelTarget = { kind: "project" | "short"; id: string };
+
+function reelColumn(platform: ReelPlatform, kind: ReelTarget["kind"]) {
+  if (kind === "project") return platform === "facebook" ? projects.facebookReel : projects.instagramReel;
+  return platform === "facebook" ? shorts.facebookReel : shorts.instagramReel;
+}
+
+/** Writes a reel's state when `when` holds; true when the row was updated. */
+async function setReel(projectId: string, platform: ReelPlatform, target: ReelTarget, reel: ReelPost | null, when: SQL) {
+  const set = platform === "facebook" ? { facebookReel: reel } : { instagramReel: reel };
+  const rows =
+    target.kind === "project"
+      ? await db
+          .update(projects)
+          .set(set)
+          .where(and(eq(projects.id, target.id), eq(projects.id, projectId), when))
+          .returning({ id: projects.id })
+      : await db
+          .update(shorts)
+          .set(set)
+          .where(and(eq(shorts.id, target.id), eq(shorts.projectId, projectId), when))
+          .returning({ id: shorts.id });
+  return rows.length > 0;
+}
+
+/**
+ * Queues a finished vertical video ("project") or a Short as a Facebook or Instagram reel.
+ * Facebook schedules the reel itself; an Instagram reel waits in MoonReel's queue until its time.
+ */
+export async function postReel(projectId: string, platform: ReelPlatform, target: ReelTarget, input: ReelInput) {
+  const { caption, publishAt } = reelSchema.parse(input);
+  if (publishAt) {
+    const ahead = new Date(publishAt).getTime() - Date.now();
+    if (ahead < REEL_SCHEDULE_MIN_MS || ahead > REEL_SCHEDULE_MAX_MS) {
+      throw new Error((await getActionDictionary()).errors.reelScheduleRange);
+    }
+  }
+  const waits = platform === "instagram" && publishAt;
+  const reel: ReelPost = { status: waits ? "scheduled" : "uploading", caption, publishAt, videoId: null, error: null };
+  // A reel already uploading, scheduled or published is left alone: only a new or failed one is (re)posted.
+  const column = reelColumn(platform, target.kind);
+  if (await setReel(projectId, platform, target, reel, sql`(${column} is null or ${column}->>'status' = 'failed')`)) {
+    await enqueueReelPost({ platform, ...target, publishAt });
+  }
+  revalidatePath(`/projects/${projectId}`);
+}
+
+/** Drops an Instagram reel that is still waiting for its time; its queued job then does nothing. */
+export async function cancelReel(projectId: string, platform: ReelPlatform, target: ReelTarget) {
+  const column = reelColumn(platform, target.kind);
+  await setReel(projectId, platform, target, null, sql`(${column}->>'status' = 'scheduled' and ${column}->>'videoId' is null)`);
   revalidatePath(`/projects/${projectId}`);
 }
 

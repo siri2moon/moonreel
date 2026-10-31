@@ -9,10 +9,12 @@ import {
   Palette,
   Repeat,
   ScrollText,
+  Send,
   Smartphone,
   Sparkles,
   Trash,
 } from "lucide-react";
+import Link from "next/link";
 import { useState, useTransition, type ReactNode } from "react";
 import { deleteNiche, saveNiche } from "@/app/actions";
 import type { Niche, NicheFormat } from "@/db/schema";
@@ -54,10 +56,16 @@ export function NicheForm({
   niche,
   characters,
   defaultCastIds,
+  facebookPageName,
+  instagramAccount,
 }: {
   niche?: Niche;
   characters: CastOption[];
   defaultCastIds: string[];
+  /** Name of the connected Facebook Page; its token never reaches the browser. */
+  facebookPageName?: string | null;
+  /** "@handle" of the Instagram account linked to that Page, when the token may post to it. */
+  instagramAccount?: string | null;
 }) {
   const { t } = useI18n();
   const f = t.nicheForm;
@@ -229,6 +237,30 @@ export function NicheForm({
           <CastPicker name="defaultCastIds" options={characters} defaultIds={defaultCastIds} />
           <span className="text-xs leading-relaxed text-subtle">{f.defaultCharacterHint}</span>
         </div>
+      </Section>
+
+      <Section icon={<Send />} title={f.facebook} description={f.facebookHint}>
+        <Field
+          label={f.facebookPageId}
+          hint={
+            facebookPageName
+              ? `${f.facebookConnected(facebookPageName)} ${instagramAccount ? f.instagramConnected(instagramAccount) : f.instagramMissing}`
+              : f.facebookPageIdHint
+          }
+        >
+          <input
+            name="facebookPageId"
+            inputMode="numeric"
+            defaultValue={niche?.facebookPageId ?? ""}
+            className={`${inputClass} font-mono`}
+          />
+        </Field>
+        <Field label={f.facebookToken} hint={facebookPageName ? f.facebookTokenKeep : f.facebookTokenHint}>
+          <input name="facebookPageToken" type="password" autoComplete="off" className={`${inputClass} font-mono`} />
+        </Field>
+        <Link href="/guides/facebook" target="_blank" className="w-fit text-sm font-medium text-gold hover:text-gold-light">
+          {f.facebookGuide}
+        </Link>
       </Section>
 
       <Section icon={<ImageIcon />} title={f.thumbnail} description={f.thumbnailHint}>

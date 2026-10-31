@@ -55,6 +55,23 @@ export type SocialPosts = {
   facebook: { caption: string };
 };
 
+/**
+ * A reel posted from MoonReel to Facebook or Instagram, for a vertical video or a Short.
+ * Facebook schedules reels itself; Instagram cannot, so MoonReel holds an Instagram reel
+ * ("scheduled") and uploads it at `publishAt`.
+ */
+export type ReelPost = {
+  status: "uploading" | "scheduled" | "published" | "failed";
+  caption: string;
+  /** ISO time it goes public; null posts it right away. */
+  publishAt: string | null;
+  /** The platform's id for the reel (Instagram: its media container) once the upload has started. */
+  videoId: string | null;
+  error: string | null;
+  /** Something that went wrong without stopping the reel, e.g. the cover image was not set. */
+  note?: string | null;
+};
+
 export const thumbnailStatusEnum = pgEnum("thumbnail_status", ["none", "drawing", "ready", "failed"]);
 
 /** What the thumbnail shows. The look (template, accent, brand) comes from the niche. */
@@ -117,6 +134,22 @@ export const niches = pgTable("niches", {
   thumbnailBrand: text("thumbnail_brand").notNull().default(""),
   /** The channel's own title and thumbnail rules; they win over the general ones in the captions prompt. */
   postsInstructions: text("posts_instructions").notNull().default(""),
+  /** Facebook Page that this niche's reels are posted to; its token lives in facebook_pages. */
+  facebookPageId: text("facebook_page_id"),
+  ...timestamps,
+});
+
+/**
+ * Facebook Pages MoonReel may post to. Kept apart from niches so a Page access token never
+ * travels with a niche row to the browser or into an exported niche file.
+ */
+export const facebookPages = pgTable("facebook_pages", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  accessToken: text("access_token").notNull(),
+  /** The Instagram professional account linked to the Page, when there is one and the token may post to it. */
+  instagramId: text("instagram_id"),
+  instagramUsername: text("instagram_username"),
   ...timestamps,
 });
 
@@ -160,6 +193,8 @@ export const projects = pgTable("projects", {
   /** "writing" while the AI picks the moments for the Shorts; each Short then renders on its own. */
   shortsStatus: postsStatusEnum("shorts_status").notNull().default("none"),
   shortsError: text("shorts_error"),
+  facebookReel: jsonb("facebook_reel").$type<ReelPost>(),
+  instagramReel: jsonb("instagram_reel").$type<ReelPost>(),
   ...timestamps,
 });
 
@@ -211,6 +246,8 @@ export const shorts = pgTable(
     status: shortStatusEnum("status").notNull().default("rendering"),
     videoPath: text("video_path"),
     error: text("error"),
+    facebookReel: jsonb("facebook_reel").$type<ReelPost>(),
+    instagramReel: jsonb("instagram_reel").$type<ReelPost>(),
     ...timestamps,
   },
   (t) => [uniqueIndex("shorts_project_index_uq").on(t.projectId, t.index)],
@@ -246,9 +283,10 @@ export const nicheCharacters = pgTable(
   (t) => [primaryKey({ columns: [t.nicheId, t.characterId] })],
 );
 
-export const nichesRelations = relations(niches, ({ many }) => ({
+export const nichesRelations = relations(niches, ({ one, many }) => ({
   projects: many(projects),
   defaultCast: many(nicheCharacters),
+  facebookPage: one(facebookPages, { fields: [niches.facebookPageId], references: [facebookPages.id] }),
 }));
 
 export const charactersRelations = relations(characters, ({ many }) => ({

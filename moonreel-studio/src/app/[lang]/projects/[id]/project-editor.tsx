@@ -22,6 +22,7 @@ import {
   RotateCcw,
   Save,
   Scissors,
+  Send,
   Sparkles,
   StickyNote,
   Trash,
@@ -38,6 +39,8 @@ import {
   deleteProject,
   editScene,
   pauseProduction,
+  cancelReel,
+  postReel,
   regeneratePosts,
   regenerateScript,
   replaceSoundtrack,
@@ -47,6 +50,9 @@ import {
   saveScript,
   updateShort,
   updateThumbnail,
+  type ReelInput,
+  type ReelPlatform,
+  type ReelTarget,
   type SceneInput,
   type ShortInput,
   type ThumbnailInput,
@@ -65,7 +71,7 @@ import {
   refusalReply,
 } from "@/lib/scene-errors";
 import type { ProjectView } from "@/lib/views";
-import type { SocialPosts } from "@/db/schema";
+import type { ReelPost, SocialPosts } from "@/db/schema";
 
 const BUSY = new Set(["scripting", "producing", "rendering"]);
 const POLL_MS = 3_000;
@@ -197,7 +203,11 @@ export function ProjectEditor({ initial }: { initial: ProjectView }) {
       view.postsStatus === "writing" ||
       view.thumbnailStatus === "drawing" ||
       view.shortsStatus === "writing" ||
-      view.shorts.some((s) => s.status === "rendering");
+      view.facebookReel?.status === "uploading" ||
+      view.instagramReel?.status === "uploading" ||
+      view.shorts.some(
+        (s) => s.status === "rendering" || s.facebookReel?.status === "uploading" || s.instagramReel?.status === "uploading",
+      );
     if (!BUSY.has(view.status) && !background) return;
     let alive = true;
     const timer = setInterval(async () => {
@@ -218,7 +228,16 @@ export function ProjectEditor({ initial }: { initial: ProjectView }) {
       alive = false;
       clearInterval(timer);
     };
-  }, [view.id, view.status, view.postsStatus, view.thumbnailStatus, view.shortsStatus, view.shorts]);
+  }, [
+    view.id,
+    view.status,
+    view.postsStatus,
+    view.thumbnailStatus,
+    view.shortsStatus,
+    view.shorts,
+    view.facebookReel,
+    view.instagramReel,
+  ]);
 
   /** Fetches the project again right away, e.g. after queueing work the poll should pick up. */
   const refresh = async () => {
@@ -342,6 +361,18 @@ export function ProjectEditor({ initial }: { initial: ProjectView }) {
                   await refresh();
                 })
               }
+              onReel={{
+                post: (platform, target, input) =>
+                  run(async () => {
+                    await postReel(view.id, platform, target, input);
+                    await refresh();
+                  }),
+                cancel: (platform, target) =>
+                  run(async () => {
+                    await cancelReel(view.id, platform, target);
+                    await refresh();
+                  }),
+              }}
               onEdit={(sceneId, input, newKeyframe) =>
                 run(() => editScene(view.id, sceneId, input, { newKeyframe }), { status: "producing", error: null })
               }
@@ -739,6 +770,7 @@ function Production({
   onThumbnail,
   onCutShorts,
   onShort,
+  onReel,
   onEdit,
 }: {
   view: ProjectView;
@@ -750,6 +782,7 @@ function Production({
   onThumbnail: (input: ThumbnailInput, newImage: boolean) => void;
   onCutShorts: () => void;
   onShort: (shortId: string, input: ShortInput) => void;
+  onReel: ReelActions;
   onEdit: (sceneId: string, input: SceneInput, newKeyframe: boolean) => void;
 }) {
   const [editing, setEditing] = useState<Scene | null>(null);
@@ -822,10 +855,16 @@ function Production({
       {view.status === "done" && (
         <>
           <ThumbnailPanel view={view} pending={pending} onSubmit={onThumbnail} />
-          <PostsPanel view={view} pending={pending} onRegenerate={onRegeneratePosts} />
+          <PostsPanel view={view} pending={pending} onRegenerate={onRegeneratePosts} onReel={onReel} />
           {/* Shorts are cut from narrated videos; a wordless video is already short. */}
           {view.niche.format === "story" && (
-            <ShortsPanel view={view} pending={pending} onCut={onCutShorts} onSave={onShort} />
+            <ShortsPanel
+              view={view}
+              pending={pending}
+              onCut={onCutShorts}
+              onSave={onShort}
+              onReel={onReel}
+            />
           )}
         </>
       )}
@@ -1046,10 +1085,12 @@ function PostsPanel({
   view,
   pending,
   onRegenerate,
+  onReel,
 }: {
   view: ProjectView;
   pending: boolean;
   onRegenerate: () => void;
+  onReel: ReelActions;
 }) {
   const { t } = useI18n();
   const [platform, setPlatform] = useState<Platform>(view.aspectRatio === "16:9" ? "youtube" : "tiktok");
@@ -1108,6 +1149,18 @@ function PostsPanel({
               <CopyField key={`${platform}-${f.label}`} {...f} />
             ))}
           </div>
+          {(platform === "facebook" || platform === "instagram") && view.aspectRatio === "9:16" && view.finalVideoUrl && (
+            <ReelBox
+              key={platform}
+              platform={platform}
+              reel={platform === "facebook" ? view.facebookReel : view.instagramReel}
+              defaultCaption={posts[platform].caption}
+              view={view}
+              target={{ kind: "project", id: view.id }}
+              pending={pending}
+              onReel={onReel}
+            />
+          )}
           <p className="text-xs text-subtle">{t.project.posts.aiLabel}</p>
         </>
       )}
@@ -1120,11 +1173,13 @@ function ShortsPanel({
   pending,
   onCut,
   onSave,
+  onReel,
 }: {
   view: ProjectView;
   pending: boolean;
   onCut: () => void;
   onSave: (shortId: string, input: ShortInput) => void;
+  onReel: ReelActions;
 }) {
   const { t } = useI18n();
   const ts = t.project.shorts;
@@ -1159,6 +1214,7 @@ function ShortsPanel({
                 view={view}
                 pending={pending || picking}
                 onSave={(input) => onSave(short.id, input)}
+                onReel={onReel}
               />
             ))}
           </div>
@@ -1174,11 +1230,13 @@ function ShortCard({
   view,
   pending,
   onSave,
+  onReel,
 }: {
   short: Short;
   view: ProjectView;
   pending: boolean;
   onSave: (input: ShortInput) => void;
+  onReel: ReelActions;
 }) {
   const { t } = useI18n();
   const ts = t.project.shorts;
@@ -1315,6 +1373,141 @@ function ShortCard({
         <>
           <CopyField label={ts.title} text={short.title} limit={100} />
           <CopyField label={ts.description} text={short.description} limit={5000} />
+          {short.videoUrl &&
+            short.status === "ready" &&
+            (["facebook", "instagram"] as const).map((platform) => (
+              <ReelBox
+                key={platform}
+                platform={platform}
+                reel={platform === "facebook" ? short.facebookReel : short.instagramReel}
+                defaultCaption={short.description ? `${short.title}\n\n${short.description}` : short.title}
+                view={view}
+                target={{ kind: "short", id: short.id }}
+                pending={pending}
+                onReel={onReel}
+              />
+            ))}
+        </>
+      )}
+    </div>
+  );
+}
+
+type ReelActions = {
+  post: (platform: ReelPlatform, target: ReelTarget, input: ReelInput) => void;
+  cancel: (platform: ReelPlatform, target: ReelTarget) => void;
+};
+
+/** "2026-11-01T06:00" in the browser's time zone, for a datetime-local input. */
+function localInputValue(date: Date) {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+/**
+ * Posts a vertical video or a Short as a Facebook or Instagram reel, now or at a set time.
+ * A reel that is uploading, scheduled or posted shows its state instead of the form.
+ */
+function ReelBox({
+  platform,
+  reel,
+  defaultCaption,
+  view,
+  target,
+  pending,
+  onReel,
+}: {
+  platform: ReelPlatform;
+  reel: ReelPost | null;
+  defaultCaption: string;
+  view: ProjectView;
+  target: ReelTarget;
+  pending: boolean;
+  onReel: ReelActions;
+}) {
+  const { t, locale } = useI18n();
+  const tr = t.project.reel;
+  const [caption, setCaption] = useState(reel?.caption ?? defaultCaption);
+  const [when, setWhen] = useState("");
+  // Facebook needs at least 10 minutes' notice; fixed when the box opens.
+  const [earliest] = useState(() => localInputValue(new Date(Date.now() + 11 * 60_000)));
+  const publishAt = when ? new Date(when) : null;
+
+  const page = view.niche.facebookPage;
+  const account =
+    platform === "facebook" ? page?.name : page?.instagramId ? `@${page.instagramUsername ?? page.instagramId}` : null;
+  if (!account) {
+    return (
+      <p className="text-xs leading-relaxed text-subtle">
+        {platform === "facebook" || !page ? tr.notConnected : tr.noInstagram}{" "}
+        <Link href="/guides/facebook" target="_blank" className="text-gold hover:text-gold-light">
+          {tr.guide}
+        </Link>
+      </p>
+    );
+  }
+  const at = (iso: string) => new Date(iso).toLocaleString(locale, { dateStyle: "medium", timeStyle: "short" });
+  // Instagram cannot schedule: MoonReel keeps the reel and uploads it at its time.
+  const waiting = platform === "instagram" && reel?.status === "scheduled" && !reel.videoId;
+
+  return (
+    <div className="flex flex-col gap-3 rounded-xl frost p-4">
+      <span className="flex items-center gap-1.5 text-xs font-medium text-muted">
+        <Send className="size-3.5 text-gold/80" /> {tr.heading(tr.platforms[platform], account)}
+      </span>
+      {reel?.status === "uploading" && <p className="animate-pulse text-sm text-muted">{tr.uploading(tr.platforms[platform])}</p>}
+      {reel?.status === "scheduled" && reel.publishAt && (
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="text-sm text-gold-light">
+            {waiting ? tr.scheduledHere(at(reel.publishAt)) : tr.scheduled(at(reel.publishAt))}
+          </p>
+          {waiting && (
+            <Button variant="ghost" size="sm" disabled={pending} onClick={() => onReel.cancel(platform, target)}>
+              <X /> {tr.cancel}
+            </Button>
+          )}
+        </div>
+      )}
+      {reel?.status === "published" && <p className="text-sm text-gold-light">{tr.published}</p>}
+      {reel?.note && reel.status !== "failed" && <p className="text-xs leading-relaxed text-subtle">{reel.note}</p>}
+      {(!reel || reel.status === "failed") && (
+        <>
+          {reel?.error && <ErrorNote>{reel.error}</ErrorNote>}
+          <textarea
+            rows={4}
+            value={caption}
+            maxLength={2200}
+            onChange={(e) => setCaption(e.target.value)}
+            className={`${inputClass} text-[13px] leading-relaxed`}
+          />
+          <label className="flex flex-col gap-1.5">
+            <span className="text-xs text-muted">{tr.when}</span>
+            <input
+              type="datetime-local"
+              value={when}
+              min={earliest}
+              onChange={(e) => setWhen(e.target.value)}
+              className={`${inputClass} text-[13px]`}
+            />
+          </label>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              size="sm"
+              disabled={pending || !publishAt}
+              onClick={() => publishAt && onReel.post(platform, target, { caption, publishAt: publishAt.toISOString() })}
+            >
+              <Send /> {tr.schedule}
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              disabled={pending}
+              onClick={() => onReel.post(platform, target, { caption, publishAt: null })}
+            >
+              {tr.postNow}
+            </Button>
+          </div>
+          <p className="text-xs leading-relaxed text-subtle">{platform === "facebook" ? tr.hint : tr.hintInstagram}</p>
         </>
       )}
     </div>

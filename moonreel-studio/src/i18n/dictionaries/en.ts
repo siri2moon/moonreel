@@ -262,6 +262,25 @@ const en = {
       cancel: "Cancel",
       relatedHint: "After uploading, set Related video to the full video in YouTube Studio so viewers can jump to it.",
     },
+    reel: {
+      platforms: { facebook: "Facebook", instagram: "Instagram" },
+      guide: "Setup guide →",
+      heading: (platform: string, account: string) => `${platform} Reel on ${account}`,
+      notConnected: "Connect a Facebook Page in this niche's settings to post this video as a reel from here.",
+      noInstagram:
+        "No Instagram account is linked to this niche's Facebook Page, or the Page token lacks instagram_basic and instagram_content_publish.",
+      uploading: (platform: string) => `Uploading to ${platform}…`,
+      scheduled: (when: string) => `Scheduled for ${when}. Change or cancel it in Meta Business Suite.`,
+      scheduledHere: (when: string) =>
+        `MoonReel posts it at ${when} (Instagram cannot schedule through the API). Keep the worker running.`,
+      cancel: "Cancel",
+      hintInstagram: "Labelled as AI-made and shared to the feed. Instagram's music library cannot be added through the API.",
+      published: "Posted. Find it in Meta Business Suite.",
+      when: "Go public at (your time zone)",
+      schedule: "Schedule reel",
+      postNow: "Post now",
+      hint: "Labelled as AI-made. Facebook's music library cannot be added through the API: for music, post this one from the app instead.",
+    },
     posts: {
       eyebrow: "Captions",
       heading: "Ready to post on every platform",
@@ -361,6 +380,17 @@ const en = {
     visualStyleHint: "For example: clean modern 3D animation, soft warm lighting, pastel colors",
     defaultCharacter: "Default cast",
     defaultCharacterHint: "Preselected, in this order, when creating a video in this niche. The first is the lead.",
+    facebook: "Facebook & Instagram Reels",
+    facebookHint: "Post this niche's vertical videos and Shorts as reels to a Facebook Page and its linked Instagram account, now or scheduled.",
+    facebookPageId: "Facebook Page ID",
+    facebookPageIdHint: "Digits only: Page → About → Page transparency, or the Page's profile link.",
+    facebookConnected: (name: string) => `Connected to ${name}.`,
+    instagramConnected: (account: string) => `Instagram reels go to ${account}.`,
+    instagramMissing: "No Instagram account found: link one to the Page and paste a token with instagram_basic and instagram_content_publish.",
+    facebookGuide: "How to get a Page token, step by step →",
+    facebookToken: "Page access token",
+    facebookTokenHint: "Needs pages_show_list, pages_read_engagement, pages_manage_posts, pages_read_user_content and pages_manage_engagement (for the cover), plus instagram_basic and instagram_content_publish for Instagram. README → Facebook Reels explains how to get one that does not expire.",
+    facebookTokenKeep: "Saved. Leave empty to keep it, or paste a new token to replace it.",
     thumbnail: "Thumbnail",
     thumbnailHint: "One look for every video in the niche, so viewers recognise the channel at a glance.",
     thumbnailStyle: "Template",
@@ -390,6 +420,90 @@ const en = {
     save: "Save settings",
     create: "Create niche",
   },
+  guide: {
+    metaTitle: "Connect Facebook & Instagram",
+    eyebrow: "Guide",
+    title: "Get a Facebook Page token",
+    description:
+      "MoonReel posts reels through Meta's free API with your own app and a Page access token. Set it up once per Page, about 10 minutes, then post and schedule reels from the video page.",
+    warning:
+      "Anyone with the Page token can post to your Page. Never paste it into a chat, an issue or a screenshot; MoonReel keeps it in your own database and never sends it to the browser.",
+    step: (n: number) => `Step ${n}`,
+    open: "Open",
+    steps: [
+      {
+        title: "Create a Meta app",
+        body: [
+          "Open Meta for Developers → My Apps → Create app.",
+          "Pick the use case *Manage everything on your Page* and give the app any name (for example your channel's name).",
+          "Leave it in development mode: it can then only post to Pages you manage, which is all MoonReel needs. No App Review is required.",
+        ],
+        link: { label: "developers.facebook.com/apps", href: "https://developers.facebook.com/apps" },
+      },
+      {
+        title: "Add the permissions to the app",
+        body: [
+          "In the app dashboard open Use cases and press Customize next to the Page use case.",
+          "Add `pages_show_list`, `pages_read_engagement`, `pages_manage_posts`, `pages_read_user_content` and `pages_manage_engagement` (the last two set the reel's cover). Ready for testing is enough.",
+          "For Instagram reels, also add the Instagram API use case (with Facebook Login) and its permissions `instagram_basic` and `instagram_content_publish`.",
+          "The Graph API Explorer in the next step only offers permissions the app already has. If one is missing there, it was not added here.",
+        ],
+      },
+      {
+        title: "Generate a user token",
+        body: [
+          "Open the Graph API Explorer and pick your app under Meta App.",
+          "Under User or Page choose Get User Access Token.",
+          "Add every permission from step 2, then press Generate Access Token. Log in and tick the Page you want to post to (and its Instagram account).",
+          "This token lasts only an hour or two, so continue straight away.",
+        ],
+        link: { label: "Graph API Explorer", href: "https://developers.facebook.com/tools/explorer/" },
+      },
+      {
+        title: "Make it long-lived",
+        body: [
+          "Open the Access Token Debugger, paste the token and press Debug.",
+          "At the bottom press Extend Access Token and enter your password if asked.",
+          "Copy the new, longer token that appears: it is a long-lived user token (about 60 days).",
+        ],
+        link: { label: "Access Token Debugger", href: "https://developers.facebook.com/tools/debug/accesstoken/" },
+      },
+      {
+        title: "Get the Page's own token",
+        body: [
+          "Back in the Graph API Explorer, paste the long-lived token into the Access Token field.",
+          "Replace the query with `me/accounts` and press Submit.",
+          "The reply lists every Page you manage. In your Page's block copy its `id` and its `access_token`.",
+          "A Page token taken from a long-lived user token does not expire. It stops working only if you change your Facebook password, lose your role on the Page or remove the app.",
+        ],
+      },
+      {
+        title: "Paste it into MoonReel",
+        body: [
+          "Open Niches, edit the niche that posts to this Page and scroll to Facebook & Instagram Reels.",
+          "Paste the `id` into Facebook Page ID and the `access_token` into Page access token, then save.",
+          "MoonReel checks both with Facebook. The form then shows Connected to your Page, and which Instagram account reels go to.",
+          "To post: open a finished vertical video, go to Captions and pick the Facebook or Instagram tab. Every finished Short has the same boxes.",
+        ],
+      },
+    ],
+    instagramTitle: "Before posting to Instagram",
+    instagram: [
+      "The Instagram account must be a professional account (Creator or Business): Instagram → Settings → Account type and tools.",
+      "It must be linked to the Facebook Page: Page → Settings → Linked accounts → Instagram, or Meta Business Suite → Settings.",
+      "Instagram's API cannot schedule, so MoonReel keeps a scheduled Instagram reel and uploads it at its time: keep the worker running then. Facebook reels are scheduled on Facebook itself.",
+    ],
+    troubleshootingTitle: "If something goes wrong",
+    troubleshooting: [
+      { q: "A permission is not in the Explorer's list", a: "Add it to the app's use cases first (step 2), then reload the Explorer." },
+      { q: "No Instagram account found", a: "Make the account professional and link it to the Page, and make sure the token has `instagram_basic`. Then save the token again in the niche form." },
+      { q: "Facebook error code 190", a: "The token expired or was revoked, for example after a password change. Repeat steps 3 to 6." },
+      { q: "Facebook error code 200 or 10", a: "The token lacks a permission. Generate it again with every permission from step 2." },
+      { q: "Cover image not set", a: "The token needs `pages_read_user_content` and `pages_manage_engagement`. The reel itself was posted." },
+      { q: "No music on the reel", a: "Facebook's and Instagram's music libraries cannot be added through the API. Post a reel that needs library music from the app." },
+    ],
+    back: "Back to niches",
+  },
   errors: {
     title: "Something went wrong",
     retry: "Try again",
@@ -399,6 +513,7 @@ const en = {
     nicheHasVideos: (n: number) => `This niche still has ${n} video${n === 1 ? "" : "s"}. Delete them before deleting the niche.`,
     noReferenceImage: "No reference image selected",
     noSoundtrack: "Upload a soundtrack for this ambient video",
+    reelScheduleRange: "Schedule the reel at least 10 minutes and at most 29 days from now.",
   },
 };
 

@@ -26,6 +26,7 @@ Vertical 9:16 for TikTok · Reels · Shorts, and 16:9 for YouTube. Powered by Me
 - **Your channel's title and thumbnail formula.** Each niche can carry its own rules for YouTube titles, thumbnail words and the thumbnail picture; they override MoonReel's general caption rules.
 - **Shorts from every video.** One click picks the three strongest 25–58 s moments of a finished video and cuts each into a 9:16 Short with an on-screen hook and burned-in captions, plus its own title and description.
 - **Fewer Muse calls and refusals.** Scripts are screened for what Muse's filter declines before any clip is made, declined scenes are rewritten and retried automatically, and shots that carry straight on start from the previous clip's last frame instead of a newly drawn keyframe.
+- **Facebook and Instagram Reels from the app.** Connect a Facebook Page to a niche and post its vertical videos and Shorts as reels to the Page and its linked Instagram account, right away or scheduled.
 - **Wordless stories.** Set a niche's video type to *Wordless story* for visual parables in the style of short-form cartoon life lessons: the story is told by pictures and acting alone, with no voice and no subtitles, ready for music added in the Reels, Shorts or TikTok app.
 - **Ambient loops for your own audio.** Set a niche's video type to *Ambient loop*, describe a place and upload a soundtrack (up to 1 GB). Muse films a few calm shots of it; they crossfade into one seamless loop that repeats until the audio ends, so an hour-long video renders in seconds.
 - **Thumbnails in the channel's style.** Each niche picks a template (Impact, Cinematic or Boxed), an accent colour and a brand label. Muse draws a photo framed for the headline, and the worker lays the headline over it as a 1280×720 (or 1080×1920) JPEG.
@@ -286,6 +287,30 @@ Fields match the niche form; `scriptInstructions` and `postsInstructions` (the t
 ### Wordless stories
 
 Niches whose **Video type** is *Wordless story* make videos with no words at all: two or three scenes that tell a small visual parable (a setup, then the same place after things change), meant to be watched with the sound off and understood in any country. Muse writes a short shot note for each scene instead of narration, the clips are made with natural sound effects only (no speech, no music), and the render joins them with no voice-over and no subtitle track. Add music when you post, from the app's own library. Captions and thumbnails work as usual; the Shorts panel is hidden because the video is already short. The niche's language is used for the captions.
+
+### Facebook Reels
+
+A niche can post its vertical videos and Shorts straight to a Facebook Page as reels, right away or at a set time, through Meta's free Reels Publishing API. The **Facebook** tab of a finished 9:16 video's captions, and every finished Short, then show a **Facebook Reel** box: edit the caption, pick when it goes public (10 minutes to 29 days ahead, in your own time zone) and press **Schedule reel** (*Hẹn giờ reel*) or **Post now** (*Đăng ngay*). The worker uploads the MP4, waits for Facebook to process it and shows the result; change or cancel a scheduled reel in Meta Business Suite. Reels are labelled as AI-made, and a video's reel gets the video's own thumbnail as its cover (a Short's reel shows a frame with its hook). Facebook allows 3–90 s reels and 30 API posts per Page a day. Music from Facebook's library cannot be added through the API, so post a reel that needs it from the app.
+
+Connect a Page once per niche (niche form → **Facebook & Instagram Reels**). The app has the same steps as a step-by-step page at `/guides/facebook`, linked from that form:
+
+1. At [developers.facebook.com](https://developers.facebook.com/apps) create an app with the use case *Manage everything on your Page*. It can stay in development mode: it only posts to Pages you manage.
+2. In the [Graph API Explorer](https://developers.facebook.com/tools/explorer/) pick that app, add the permissions `pages_show_list`, `pages_read_engagement`, `pages_manage_posts`, `pages_read_user_content` and `pages_manage_engagement` (the last two set the reel's cover), and press **Generate Access Token**, choosing your Pages.
+3. Paste that token into the [Access Token Debugger](https://developers.facebook.com/tools/debug/accesstoken/) and press **Extend Access Token**: this gives a long-lived user token.
+4. Back in the Explorer, with the long-lived token, request `GET me/accounts`. Each Page in the reply has its `id` and an `access_token`; a Page token taken from a long-lived user token does not expire.
+5. Paste the Page's `id` and `access_token` into the niche form and save. MoonReel checks them with Facebook and shows the Page's name.
+
+The token is kept in the `facebook_pages` table: it is never sent to the browser and never written into an exported niche file (those keep only `facebookPageId`).
+
+### Instagram Reels
+
+The same Page connection posts to the Instagram professional account (Business or Creator) linked to that Page. The **Instagram** tab of a finished 9:16 video's captions, and every finished Short, show an **Instagram Reel** box next to the Facebook one. Instagram's API cannot schedule, so a scheduled Instagram reel waits in MoonReel's queue and is uploaded at its time: keep the worker running then (a reel whose time passed while the worker was off goes up as soon as it starts again). Until then **Cancel** (*Huỷ*) drops it. Reels are labelled as AI-made and shared to the feed; Instagram allows 100 API posts a day.
+
+To enable it:
+
+1. Switch the Instagram account to a professional account and link it to the Facebook Page (Instagram → Settings → Account type and tools, then Page → Settings → Linked accounts).
+2. In the Meta app, add the use case for the Instagram API with Facebook Login, or customise the existing one, so that `instagram_basic` and `instagram_content_publish` can be added.
+3. Generate the token again as in steps 2–4 of Facebook Reels, now also with `instagram_basic` and `instagram_content_publish`, and paste the new Page token into the niche form. The form then shows which Instagram account reels go to.
 
 ### Ambient loops
 

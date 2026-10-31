@@ -23,7 +23,11 @@ export async function getProjectView(id: string) {
   const project = await db.query.projects.findFirst({
     where: eq(projects.id, id),
     with: {
-      niche: { columns: { id: true, name: true, icon: true, sceneSeconds: true, format: true } },
+      niche: {
+        columns: { id: true, name: true, icon: true, sceneSeconds: true, format: true },
+        // The Page's name only: its access token stays on the server.
+        with: { facebookPage: { columns: { name: true, instagramUsername: true, instagramId: true } } },
+      },
       cast: { orderBy: [asc(projectCharacters.position)], with: { character: true } },
       scenes: { orderBy: [asc(scenes.index)] },
       shorts: { orderBy: [asc(shorts.index)] },
@@ -67,6 +71,8 @@ export async function getProjectView(id: string) {
     thumbnailError: project.thumbnailError,
     shortsStatus: project.shortsStatus,
     shortsError: project.shortsError,
+    facebookReel: project.facebookReel,
+    instagramReel: project.instagramReel,
     shorts: project.shorts.map((s) => ({
       id: s.id,
       index: s.index,
@@ -77,6 +83,8 @@ export async function getProjectView(id: string) {
       description: s.description,
       status: s.status,
       error: s.error,
+      facebookReel: s.facebookReel,
+      instagramReel: s.instagramReel,
       videoUrl: fileUrl(s.videoPath, s.updatedAt),
     })),
     scenes: project.scenes.map((s) => ({

@@ -9,10 +9,12 @@ import {
   renderProject,
   renderShortClip,
 } from "@/lib/pipeline/jobs";
+import { postReel } from "@/lib/pipeline/reels";
 import {
   QUEUES,
   getBoss,
   type CharacterReferenceJob,
+  type ReelPostJob,
   type ProjectPostsJob,
   type ProjectThumbnailJob,
   type ProjectRenderJob,
@@ -68,6 +70,11 @@ async function main() {
   await boss.work<ShortRenderJob>(QUEUES.shortRender, async ([job]) => {
     console.log(`[short] ${job.data.shortId}`);
     await renderShortClip(job.data.shortId);
+  });
+
+  await boss.work<ReelPostJob>(QUEUES.reelPost, async ([job]) => {
+    console.log(`[reel] ${job.data.platform} ${job.data.kind} ${job.data.id}`);
+    await postReel(job.data);
   });
 
   console.log(`Worker ready (Muse concurrency ${museConcurrency})`);

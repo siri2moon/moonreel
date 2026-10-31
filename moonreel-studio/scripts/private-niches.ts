@@ -35,6 +35,8 @@ export const nicheFileSchema = z.object({
   thumbnailAccent: z.string().regex(/^#[0-9a-fA-F]{6}$/).default("#FFC23D"),
   thumbnailBrand: z.string().default(""),
   postsInstructions: lines.default(""),
+  // The Page's access token is never written to a niche file; connect it again in the niche form.
+  facebookPageId: z.string().nullable().default(null),
 });
 
 export type NicheFile = z.infer<typeof nicheFileSchema>;
@@ -76,6 +78,7 @@ export function toNicheFile(n: Niche) {
     thumbnailAccent: n.thumbnailAccent,
     thumbnailBrand: n.thumbnailBrand,
     postsInstructions: n.postsInstructions ? n.postsInstructions.split("\n") : "",
+    facebookPageId: n.facebookPageId,
   };
 }
 
