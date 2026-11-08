@@ -398,16 +398,29 @@ export async function rerender(projectId: string) {
   revalidatePath(`/projects/${projectId}`);
 }
 
-/** Swaps the soundtrack of an ambient video; a finished video is rendered again with it. */
+/**
+ * Sets the soundtrack of an ambient or song video. A finished video is rendered again with it,
+ * and so is a song whose clips are all made but which had no song to render with yet.
+ */
 export async function replaceSoundtrack(projectId: string, audioPath: string) {
   const key = z.string().regex(SOUNDTRACK_KEY).parse(audioPath);
   const audioSeconds = await mediaDuration(resolveKey(key));
-  const [row] = await db
-    .update(projects)
-    .set({ audioPath: key, audioSeconds })
-    .where(eq(projects.id, projectId))
-    .returning({ status: projects.status });
-  if (row?.status === "done") {
+  const [[row], [clips]] = await Promise.all([
+    db
+      .update(projects)
+      .set({ audioPath: key, audioSeconds })
+      .where(eq(projects.id, projectId))
+      .returning({ status: projects.status }),
+    db
+      .select({
+        total: count(),
+        done: sql<number>`count(*) filter (where ${scenes.status} = 'done')::int`,
+      })
+      .from(scenes)
+      .where(eq(scenes.projectId, projectId)),
+  ]);
+  const clipsReady = clips.total > 0 && clips.done === clips.total;
+  if (row?.status === "done" || (row?.status === "failed" && clipsReady)) {
     await db.update(projects).set({ status: "rendering", error: null }).where(eq(projects.id, projectId));
     await enqueueRender(projectId);
   }

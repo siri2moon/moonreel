@@ -74,6 +74,8 @@ async function NewProject() {
   const defaultCastIds = defaultCast.map((c) => c.id);
   const sceneMinutes = `${niche.sceneCount * 2}–${niche.sceneCount * 4}`;
   const ambient = niche.format === "ambient" ? p.ambient : null;
+  // A song's lyrics come first; the song itself is made elsewhere and uploaded on the video page.
+  const song = niche.format === "song" ? p.song : null;
 
   return (
     <>
@@ -86,14 +88,14 @@ async function NewProject() {
             {p.title.post}
           </>
         }
-        description={ambient?.description ?? p.description}
+        description={ambient?.description ?? song?.description ?? p.description}
       />
 
       <form action={createProject} className="grid gap-6 lg:grid-cols-[1fr_320px]">
         <input type="hidden" name="nicheId" value={niche.id} />
 
         <Card className="flex flex-col gap-10 p-6 md:p-8">
-          <Step n={1} title={ambient?.stepPlace ?? p.stepTopic}>
+          <Step n={1} title={ambient?.stepPlace ?? song?.stepRequest ?? p.stepTopic}>
             <textarea
               name="topic"
               required
@@ -101,9 +103,9 @@ async function NewProject() {
               rows={4}
               autoFocus
               className={`${inputClass} text-base leading-relaxed`}
-              placeholder={ambient?.placePlaceholder ?? p.topicPlaceholder}
+              placeholder={ambient?.placePlaceholder ?? song?.requestPlaceholder ?? p.topicPlaceholder}
             />
-            <p className="text-xs text-subtle">{ambient?.placeHint ?? p.topicHint}</p>
+            <p className="text-xs text-subtle">{ambient?.placeHint ?? song?.requestHint ?? p.topicHint}</p>
           </Step>
 
           {ambient && (
@@ -228,13 +230,13 @@ async function NewProject() {
             <div className="flex justify-between">
               <span>{p.length}</span>
               <span className="text-foreground">
-                {ambient ? ambient.lengthValue : `~${niche.sceneCount * niche.sceneSeconds}s`}
+                {ambient ? ambient.lengthValue : song ? song.lengthValue : `~${niche.sceneCount * niche.sceneSeconds}s`}
               </span>
             </div>
           </Card>
 
           <Button type="submit" size="lg" className="w-full">
-            <WandSparkles /> {ambient?.submit ?? p.submit}
+            <WandSparkles /> {ambient?.submit ?? song?.submit ?? p.submit}
           </Button>
         </aside>
       </form>

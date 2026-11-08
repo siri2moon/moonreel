@@ -53,6 +53,7 @@ niches 1──* projects *──* characters   (project_characters, ordered: the
 **niches**: the template that drives every script in a channel
 - `name`, `description`, `icon` (emoji shown in the UI)
 - `scriptInstructions`: niche-specific rules for the AI (structure, hook, CTA, things to avoid…)
+- `format`: `story`, `wordless`, `ambient` or `song` (see the sections below)
 - `tone`, `visualStyle` (applied to every scene), `language`
 - `sceneCount`, `sceneSeconds` (default 6 scenes × 10 s)
 - `defaultAspectRatio` and the default cast (`niche_characters`): preselected when creating a video
@@ -122,6 +123,10 @@ Thumbnail templates live in `src/lib/pipeline/thumbnail.ts` (rendering) and `src
 ### Ambient loops
 
 Niches with `format = "ambient"` skip narration: `buildAmbientScriptPrompt` asks for loopable shots of one place, and `projects.audio_path` holds a soundtrack uploaded through `POST /api/uploads/audio` (a route handler outside the proxy, streamed to disk, so large files never pass through a server action). `renderLoop` in `pipeline/render.ts` chains the clips with `xfade`, appends clip 1 again and cuts the result where that copy reaches the first frame, which gives a loop with no seam. Each clip skips its first second (Muse eases in from the still keyframe, so motion there is a third of its later speed) and its last 1.5 seconds (where Muse speeds up), keeps its native 24 fps (converting to 30 repeated every fourth frame), and joins the next one with a 2.5-second smoothstep crossfade. A second FFmpeg pass repeats it with `-stream_loop` and `-c:v copy` up to the soundtrack's length, so only the audio is encoded.
+
+### Songs
+
+Niches with `format = "song"` make a music video for a song the user makes elsewhere. `buildSongScriptPrompt` writes, in one reply, the song title, `projects.music_prompt` (a style prompt for Suno or another music generator), `projects.lyrics` (tagged with `[Verse]`, `[Chorus]`…) and one scene per part of the lyrics, whose `narration` holds the lines sung in it. The project page shows both with copy buttons; the song comes back through the same upload route as an ambient soundtrack, and can be uploaded while the clips are still being made (a song uploaded after the clips are done, or after a render that failed for lack of it, starts the render). Clips are asked for silence with no lip movement, since nothing on screen can match a song made later. `renderSong` in `pipeline/render.ts` shares the song's length evenly between the scenes: each clip skips Muse's ease-in, plays up to 1.25× slower to fill its share and loops past that, the scenes crossfade for half a second and the picture fades out as the song ends. There are no subtitles and no Shorts.
 
 ### Why generate a keyframe before the video?
 muse2api accepts **one reference image** per request. Feeding the character portrait straight into the video makes the first frame a static portrait. Generating a keyframe first (the character **inside the scene**, at the right aspect ratio) and using it as the video's first frame keeps the character consistent *and* the composition right.

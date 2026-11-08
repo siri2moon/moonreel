@@ -20,6 +20,14 @@ export const scriptSchema = z.object({
 
 export type Script = z.infer<typeof scriptSchema>;
 
+/** A song script: what to paste into a music generator, and one scene per part of the lyrics. */
+export const songScriptSchema = scriptSchema.extend({
+  musicPrompt: z.string().min(1),
+  lyrics: z.string().min(1),
+});
+
+export type SongScript = z.infer<typeof songScriptSchema>;
+
 export const scenesSchema = scriptSchema.pick({ scenes: true });
 
 const ASPECT_LABEL: Record<AspectRatio, string> = {
@@ -30,6 +38,9 @@ const ASPECT_LABEL: Record<AspectRatio, string> = {
 const VOICE_OVER = "The narration is an off-screen voice-over: nobody in the shot speaks it.";
 const WORDLESS =
   "There is no narration and no dialogue: nobody speaks and nothing is written on screen. The story is told by pictures and acting alone.";
+// The song is made elsewhere and laid over the clips afterwards, so lips could never match it.
+const SONG =
+  "The song plays over the video: nobody on screen sings, speaks or moves their lips to it. The characters tell the video's story with gestures, looks and actions.";
 
 /** Most cast members drawn into one shot; more than this blurs together in one reference image. */
 export const MAX_CHARACTERS_PER_SCENE = 3;
@@ -37,6 +48,19 @@ export const MAX_CHARACTERS_PER_SCENE = 3;
 function castBlock(cast: Character[], niche: Niche) {
   const wordless = niche.format === "wordless";
   const voiceOver = !!niche.narratorVoiceId;
+  if (niche.format === "song") {
+    if (cast.length === 0) return `No recurring character. ${SONG} Scenes may use any visuals that fit the video's story.`;
+    return [
+      `Recurring ${cast.length > 1 ? "cast (always exactly these characters, always looking exactly like this)" : "character"}:`,
+      ...cast.map(
+        (c, i) => `- ${c.name}${i === 0 && cast.length > 1 ? " (lead)" : ""}: ${c.appearance}${c.personality ? `. Personality: ${c.personality}` : ""}`,
+      ),
+      cast.length > 1
+        ? `Every scene lists in "characters" the names of the cast members on screen, at most ${MAX_CHARACTERS_PER_SCENE}; an empty list means none of them is in the shot.`
+        : "The character appears on screen in every scene.",
+      SONG,
+    ].join("\n");
+  }
   if (cast.length === 0) {
     return `No recurring character and no presenter on screen. ${wordless ? WORDLESS : VOICE_OVER} Scenes may use any visuals that fit the topic.`;
   }
@@ -250,6 +274,87 @@ Reply with ONLY this JSON object, no markdown, no explanation:
 {"title": "...", "scenes": [${AMBIENT_SCENE_SHAPE}]}`;
 }
 
+/**
+ * A song and its music video in one reply: a style prompt and lyrics the user pastes into a
+ * music generator, and one scene per part of the lyrics. The song is uploaded afterwards and
+ * the scenes share its length evenly, so the parts should take about the same time to sing.
+ */
+export function buildSongScriptPrompt(input: ScriptInput) {
+  const { niche, cast, topic, aspectRatio } = input;
+  const seconds = niche.sceneCount * niche.sceneSeconds;
+  return `You are a songwriter and music video director. Write a short original song and plan its animated music video. Reply with JSON only.
+
+# Niche: ${niche.name}
+${niche.description}
+
+# Niche rules
+${niche.scriptInstructions}
+
+Mood: ${niche.tone || "heartfelt"}
+Lyrics language: ${niche.language}
+Format: ${ASPECT_LABEL[aspectRatio]}
+
+# ${cast.length > 1 ? "Cast" : "Character"}
+${castBlock(cast, niche)}
+
+# What the user asks for
+${topic}
+
+# The song
+- About ${seconds} seconds long when sung: one verse and one chorus, or a short verse, a pre-chorus and a chorus, optionally a short post-chorus that repeats the hook. Short lines that are easy to sing.
+- Original words only: never quote or imitate the lyrics of an existing song or name a real artist.
+- "lyrics": the complete lyrics in ${niche.language}, one sung line per line, each section headed by a tag on its own line: [Intro], [Verse], [Pre-Chorus], [Chorus], [Post-Chorus], [Outro]. Nothing but the tags and the sung lines (no chords, no notes, no stage directions, nothing in brackets or parentheses after a tag); a section with no sung lines is left out, so an instrumental intro goes in "musicPrompt" instead.
+- "musicPrompt": the style prompt for an AI music generator such as Suno, in English, at most 300 characters, comma-separated: genre, mood, tempo (BPM), main instruments, the singer's voice (e.g. "soft female vocal"), what makes the melody catch (e.g. "catchy vocal hook, singalong chorus"), and "short song, about ${seconds} seconds". No artist or song names.
+- "title": the song title in ${niche.language}, short and memorable: the hook phrase itself.
+
+# Writing lyrics that stick
+The lyrics must read like a poem and sing like a hit; flat, prose-like lines are the most common failure.
+- Rhyme: lines rhyme in pairs (AABB) or alternately (ABAB) with real rhymes (same vowel and ending sound, not just the same tone), and every line of the chorus ends on one shared rhyme sound. No unrhymed line except the one that resolves the chorus.
+- Meter: lines that answer each other have the same number of syllables and the same rhythm, so one melodic phrase repeats over them. Verse lines carry the story; chorus lines are shorter and punchier.
+- Hook: one short phrase of 3–7 syllables, the title, opens the chorus and returns at its end, at least 3 times in the song. The chorus alone must work as a 15-second clip people replay: it states the feeling of the whole song.
+- Repetition is earned, not filler: the chorus has at least 3 different lines and carries the hook at most twice; a post-chorus or outro is at most 2 lines. A line that is only the hook repeated is not a lyric.
+- Device: build the chorus on repetition with a twist (anaphora: the same opening word with a new ending each line), a question, or a turn of phrase that flips meaning on its last repeat.
+- Images: one concrete central image carried through the whole song (an object, a place, a time of day), fresh everyday details over clichés (no "broken heart", "tears fall", "pain in my heart"). Show, then name the feeling once.
+- Singability: the last word of each line is a held note, so pick an open, easy word to hold${
+    niche.language.toLowerCase().startsWith("vi")
+      ? ` (in Vietnamese a level tone, thanh ngang or thanh huyền; avoid hỏi and ngã on held notes, they turn into another word when sung long)`
+      : ""
+  }.
+- Before replying, read the lyrics aloud in your head: fix any line that does not rhyme, has a different syllable count from its partner line, or would sound flat as a TikTok sound.
+
+# The music video
+- Exactly ${niche.sceneCount} scenes that follow the lyrics in order. The finished song is split evenly between them, so give each scene about the same share of the lyrics (roughly ${niche.sceneSeconds} seconds of singing); the first scene also covers the intro.
+- "narration": the lyric lines sung during that scene, copied exactly from "lyrics" (no tags). Every sung line belongs to exactly one scene, in order.
+- The pictures tell the story of the lyrics unless the niche rules say how far the video may stray from them; then the niche rules win.
+- "visualPrompt": in English, what is on screen: setting, action, expression, lighting, telling the video's story in pictures. Refer to characters by name and do not describe their looks, they are added automatically. No on-screen text, no musical instruments being played, nobody singing into a microphone.
+- "camera": in English, one slow, smooth camera move (e.g. "slow push-in", "gentle pan left"). Avoid fast action: it distorts the character.
+- "continuesPrevious": true only when the shot picks up exactly where the previous shot ends (same place, same characters, same moment, no cut). false for scene 1 and after ${MAX_CHAINED_SCENES} chained shots in a row.
+- "characters": ${
+    cast.length > 1
+      ? `names of the cast members on screen, exactly as written in the cast list, at most ${MAX_CHARACTERS_PER_SCENE}.`
+      : "an empty array."
+  }
+
+# Output
+Reply with ONLY this JSON object, no markdown, no explanation:
+{"title": "...", "musicPrompt": "...", "lyrics": "[Verse]\\n...", "scenes": [${SCENE_SHAPE}]}`;
+}
+
+/**
+ * Lyrics as a music generator should get them: no stage directions in parentheses and no
+ * section tag without sung lines under it, which the generator would otherwise fill with
+ * words of its own.
+ */
+export function cleanLyrics(lyrics: string) {
+  const lines = lyrics
+    .split("\n")
+    .map((l) => l.trim())
+    .filter((l) => l && !/^\(.*\)$/.test(l));
+  const isTag = (l: string) => /^\[.*\]$/.test(l);
+  const kept = lines.filter((l, i) => !isTag(l) || (i + 1 < lines.length && !isTag(lines[i + 1])));
+  return kept.map((l, i) => (isTag(l) && i > 0 ? `\n${l}` : l)).join("\n");
+}
+
 export function buildRepairPrompt(raw: string, error: string, shape: string) {
   return `The following text should be a JSON object of shape ${shape} but it is invalid (${error}).
 Fix it and reply with ONLY the corrected JSON object, nothing else.
@@ -293,7 +398,11 @@ type Shot = Pick<Scene, "narration" | "visualPrompt" | "camera">;
 function shotRules(niche: Niche) {
   return `- Keep each scene's story beat, characters, place, light and style. Change only what the filter would decline: show the moment before or after, imply instead of showing, make it calm or comic.
 - "narration" stays in ${niche.language} and the same length; ${
-    niche.format === "wordless" ? "it is a short shot note that is never spoken" : "it is spoken over the clip, so keep it natural"
+    niche.format === "wordless"
+      ? "it is a short shot note that is never spoken"
+      : niche.format === "song"
+        ? "it holds the sung lyrics: keep them word for word"
+        : "it is spoken over the clip, so keep it natural"
   }. It is sent to the video model too, so it must pass the filter as well.
 - "camera" is one short camera move; change it too, since the model refuses a request it has already refused.`;
 }
@@ -398,6 +507,7 @@ export function buildPostsPrompt(input: {
   const vertical = aspectRatio === "9:16";
   const ambient = niche.format === "ambient";
   const wordless = niche.format === "wordless";
+  const song = niche.format === "song";
   const script = narration.map((line, i) => `${i + 1}. ${line}`).join("\n");
   const length =
     input.durationSeconds < 60
@@ -419,7 +529,12 @@ ${
 # What the video is
 A looping ambient visual played under a soundtrack, for studying, working, relaxing or sleeping. There is no narration and no story. The shots it loops through:
 ${script}`
-    : wordless
+    : song
+      ? `
+# What the video is
+An original song with an animated music video. The lyrics, part by part:
+${script}`
+      : wordless
       ? `
 # Shots, numbered by scene
 The video has no words: nobody speaks and no text appears. The story is told by these shots alone:
@@ -431,12 +546,15 @@ ${script}`
 
 # Rules
 - Write everything in ${niche.language}, for viewers of that language.
-- Be accurate to the ${ambient ? "shots and the place" : wordless ? "shots" : "narration"}: no claims the video does not make, no fake urgency, no clickbait the video does not pay off.
+- Be accurate to the ${ambient ? "shots and the place" : wordless ? "shots" : song ? "song" : "narration"}: no claims the video does not make, no fake urgency, no clickbait the video does not pay off.
 ${
   ambient
     ? `- youtube.title: at most 90 characters, in the style of ambience channels: the place and mood first, then what it is for and the length, e.g. "Rainy Night Café ☕ Soft Jazz & Rain Sounds for Study, Sleep (${length})". At most 2 emoji.
 - youtube.description: 2 opening lines that set the scene and contain the main keywords (they show in search), then a short paragraph inviting the viewer to stay a while, then one line asking to subscribe for more ambience, then 3 hashtags on the last line. No links, no chapter list.`
-    : `- youtube.title: at most 70 characters. Start with the exact phrase viewers type into search (e.g. "Lion vs Cape Buffalo", "Nile Crocodile vs Wildebeest", "Losing My Job to AI"), then a plain, concrete curiosity hook ("Who Really Wins?", "The Deadliest River Crossing", "Why Lions Fear the Herd"). No poetic or abstract labels nobody searches for ("The Eternal Duel", "The River of Teeth"), curiosity without lying.
+    : song
+      ? `- youtube.title: at most 70 characters: the song title, then a short line on its feeling (e.g. "Thương Thầm | Bài hát buồn về yêu đơn phương"). At most 1 emoji.
+- youtube.description: 2 opening lines on what the song is about, then the chorus lyrics, then one line asking to subscribe for more songs, then 3 hashtags on the last line. No links.`
+      : `- youtube.title: at most 70 characters. Start with the exact phrase viewers type into search (e.g. "Lion vs Cape Buffalo", "Nile Crocodile vs Wildebeest", "Losing My Job to AI"), then a plain, concrete curiosity hook ("Who Really Wins?", "The Deadliest River Crossing", "Why Lions Fear the Herd"). No poetic or abstract labels nobody searches for ("The Eternal Duel", "The River of Teeth"), curiosity without lying.
 - youtube.description: 2 opening lines that hook and contain the main keywords (they show in search), then a short paragraph on what the viewer learns, then one line asking to subscribe, then 3 hashtags on the last line. No links, no chapter list.`
 }
 - youtube.tags: 10–15 search phrases a viewer would type, most specific first, no "#".
@@ -630,7 +748,10 @@ export function buildVideoPrompt(input: {
     scene.camera && `Camera: ${scene.camera}.`,
     niche.visualStyle && `Visual style: ${niche.visualStyle}.`,
     names && `Keep ${names} looking exactly like in the first frame.`,
-    niche.format === "wordless"
+    niche.format === "song"
+      ? // The uploaded song replaces the clip's sound; lips moving to Muse's own audio would not match it.
+        "Nobody speaks or sings and nobody's lips move: no speech, no singing, no dialogue, no music. Soft ambient sound only."
+      : niche.format === "wordless"
       ? "Nobody speaks: no speech, no dialogue, no narration, no music. Natural sound effects only."
       : niche.narratorVoiceId
         ? // The narrator voice is added at render time; any speech here would talk over it.

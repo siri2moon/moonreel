@@ -313,3 +313,65 @@ export async function renderLoop(input: {
   await rm(loopFile, { force: true });
   return { durationSeconds: audioSeconds, loopSeconds: period };
 }
+
+// Song videos: each clip skips Muse's ease-in, may play a little slower to fill its share of
+// the song (more reads as slow motion), and loops when the song is longer still.
+const SONG_HEAD_TRIM_S = 0.5;
+const SONG_MAX_SLOWDOWN = 1.25;
+const SONG_CROSSFADE_S = 0.5;
+const SONG_FADE_OUT_S = 1;
+
+/**
+ * Music video for an uploaded song: the scenes share the song's length evenly, in order, with
+ * short crossfades between them, and the picture fades out as the song ends. The clips' own
+ * sound is dropped.
+ */
+export async function renderSong(input: {
+  clips: string[];
+  audio: string;
+  aspectRatio: AspectRatio;
+  outFile: string;
+}) {
+  const { clips, audio, aspectRatio, outFile } = input;
+  const { w, h } = FRAME[aspectRatio];
+  // Independent ffprobe processes, not queries: probing in parallel is just faster.
+  const [durations, audioSeconds] = await Promise.all([Promise.all(clips.map(mediaDuration)), mediaDuration(audio)]);
+  const slot = audioSeconds / clips.length;
+  const fade = clips.length > 1 ? Math.min(SONG_CROSSFADE_S, slot / 4) : 0;
+  // Every clip but the last runs one crossfade longer, which the next clip's fade-in overlaps.
+  const lengths = clips.map((_, i) => slot + (i < clips.length - 1 ? fade : 0));
+
+  const filters = clips.map((_, i) => {
+    const head = Math.min(SONG_HEAD_TRIM_S, durations[i] / 5);
+    const slowdown = Math.min(Math.max(lengths[i] / (durations[i] - head), 1), SONG_MAX_SLOWDOWN);
+    // The input loops forever (-stream_loop), so trim always has enough frames to cut from.
+    return `[${i}:v]trim=start=${head.toFixed(3)},setpts=${slowdown.toFixed(4)}*(PTS-STARTPTS),${normalizeVideo(w, h, "30")},trim=duration=${lengths[i].toFixed(3)},setpts=PTS-STARTPTS[c${i}]`;
+  });
+  let previous = "c0";
+  let offset = 0;
+  for (let i = 1; i < clips.length; i++) {
+    offset += lengths[i - 1] - fade;
+    filters.push(`[${previous}][c${i}]xfade=transition=fade:duration=${fade.toFixed(3)}:offset=${offset.toFixed(3)}[x${i}]`);
+    previous = `x${i}`;
+  }
+  const fadeOut = Math.min(SONG_FADE_OUT_S, slot / 2);
+  filters.push(`[${previous}]fade=t=out:st=${(audioSeconds - fadeOut).toFixed(3)}:d=${fadeOut.toFixed(3)}[v]`);
+
+  await run("ffmpeg", [
+    "-y", "-hide_banner",
+    ...clips.flatMap((file) => ["-stream_loop", "-1", "-i", file]),
+    "-i", audio,
+    "-filter_complex", filters.join(";"),
+    "-map", "[v]",
+    "-map", `${clips.length}:a`,
+    "-c:v", "libx264",
+    "-preset", "medium",
+    "-crf", "18",
+    "-c:a", "aac",
+    "-b:a", "192k",
+    "-t", audioSeconds.toFixed(3),
+    "-movflags", "+faststart",
+    outFile,
+  ]);
+  return { durationSeconds: audioSeconds };
+}

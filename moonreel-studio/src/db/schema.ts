@@ -20,8 +20,10 @@ export const aspectRatioEnum = pgEnum("aspect_ratio", ["9:16", "16:9"]);
  * soundtrack the user uploads; scenes carry only a short shot note, nothing is spoken.
  * "wordless": a story told by pictures alone (visual parables for Reels and Shorts); scenes
  * carry a shot note, nothing is spoken and there are no subtitles.
+ * "song": a music video. The AI writes the lyrics and a style prompt the user pastes into a
+ * music generator (Suno…); the song they upload plays over the clips, one scene per lyric part.
  */
-export const nicheFormatEnum = pgEnum("niche_format", ["story", "ambient", "wordless"]);
+export const nicheFormatEnum = pgEnum("niche_format", ["story", "ambient", "wordless", "song"]);
 
 export const referenceStatusEnum = pgEnum("reference_status", [
   "none",
@@ -178,8 +180,12 @@ export const projects = pgTable("projects", {
   captionsPath: text("captions_path"),
   /** Uploaded soundtrack of an ambient video; the clips loop until it ends. */
   audioPath: text("audio_path"),
-  /** Length of the soundtrack, which is also the length of the final ambient video. */
+  /** Length of the soundtrack, which is also the length of the final ambient or song video. */
   audioSeconds: real("audio_seconds"),
+  /** Song only: the style prompt to paste into a music generator (genre, mood, voice, tempo). */
+  musicPrompt: text("music_prompt"),
+  /** Song only: the full lyrics with [Verse]/[Chorus] tags, to paste with the style prompt. */
+  lyrics: text("lyrics"),
   /** Scenes in this video's script; null uses the niche's count. */
   sceneCount: integer("scene_count"),
   /** Optional photo of the place; Muse copies it when drawing keyframes and the thumbnail. */

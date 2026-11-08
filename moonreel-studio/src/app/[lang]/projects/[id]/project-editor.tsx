@@ -85,6 +85,9 @@ type Short = ProjectView["shorts"][number];
  */
 const AmbientContext = createContext<{ audioSeconds: number | null } | null>(null);
 
+/** Set for song videos: the "narration" holds the sung lyrics and the video runs as long as the song. */
+const SongContext = createContext<{ audioSeconds: number | null } | null>(null);
+
 /** The project's cast, lead first. */
 const CastContext = createContext<ProjectView["cast"]>([]);
 
@@ -153,14 +156,21 @@ function ContinuesPrevious({ value, onChange }: { value: boolean; onChange: (on:
 function NarrationLabel({ text }: { text: string }) {
   const { t } = useI18n();
   const ambient = useContext(AmbientContext);
+  const song = useContext(SongContext);
   const words = text.trim().split(/\s+/).filter(Boolean).length;
   return (
     <span className="flex items-center justify-between text-xs text-muted">
       <span className="flex items-center gap-1.5">
-        {ambient ? <StickyNote className="size-3.5 text-gold/80" /> : <Mic className="size-3.5 text-gold/80" />}
-        {ambient ? t.project.ambient.shotNote : t.project.narration}
+        {ambient ? (
+          <StickyNote className="size-3.5 text-gold/80" />
+        ) : song ? (
+          <Music className="size-3.5 text-gold/80" />
+        ) : (
+          <Mic className="size-3.5 text-gold/80" />
+        )}
+        {ambient ? t.project.ambient.shotNote : song ? t.project.song.lyricsPart : t.project.narration}
       </span>
-      {!ambient && <span className={words > 25 ? "text-warning" : "text-subtle"}>{t.project.words(words)}</span>}
+      {!ambient && !song && <span className={words > 25 ? "text-warning" : "text-subtle"}>{t.project.words(words)}</span>}
     </span>
   );
 }
@@ -260,9 +270,11 @@ export function ProjectEditor({ initial }: { initial: ProjectView }) {
   const scenesForAction = draft.filter((s) => s.narration.trim() && s.visualPrompt.trim());
 
   const ambient = view.niche.format === "ambient" ? { audioSeconds: view.audioSeconds } : null;
+  const song = view.niche.format === "song" ? { audioSeconds: view.audioSeconds } : null;
 
   return (
     <AmbientContext value={ambient}>
+      <SongContext value={song}>
       <CastContext value={view.cast}>
         <div className="flex flex-col gap-8">
           <Header view={view} onDelete={() => run(() => deleteProject(view.id))} pending={pending} />
@@ -302,6 +314,19 @@ export function ProjectEditor({ initial }: { initial: ProjectView }) {
                 <p className="text-xs text-subtle">{t.project.ambient.referenceHint}</p>
               </Card>
             </div>
+          )}
+
+          {song !== null && view.status !== "scripting" && (
+            <SongPanel
+              view={view}
+              pending={pending}
+              onUploaded={(key) =>
+                run(
+                  () => replaceSoundtrack(view.id, key),
+                  view.status === "done" ? { status: "rendering", error: null } : undefined,
+                )
+              }
+            />
           )}
 
           {view.status === "failed" && view.scenes.length === 0 && (
@@ -380,6 +405,7 @@ export function ProjectEditor({ initial }: { initial: ProjectView }) {
           )}
         </div>
       </CastContext>
+      </SongContext>
     </AmbientContext>
   );
 }
@@ -598,6 +624,54 @@ function Working({ icon, title, body }: { icon: ReactNode; title: string; body: 
   );
 }
 
+/**
+ * What the user takes to a music generator (style prompt and lyrics, ready to copy), and where
+ * the finished song comes back. The video is cut to the song's length when it renders.
+ */
+function SongPanel({
+  view,
+  pending,
+  onUploaded,
+}: {
+  view: ProjectView;
+  pending: boolean;
+  onUploaded: (key: string) => void;
+}) {
+  const { t } = useI18n();
+  const s = t.project.song;
+  return (
+    <div className="grid gap-4 md:grid-cols-[1fr_minmax(0,360px)]">
+      <Card className="flex flex-col gap-4 p-5">
+        <span className="flex items-center gap-2 text-[11px] font-semibold tracking-[0.2em] text-gold uppercase">
+          <Music className="size-3.5" /> {s.makeTitle}
+        </span>
+        <p className="text-xs leading-relaxed text-subtle">{s.makeHint}</p>
+        {view.musicPrompt && <CopyField label={s.style} text={view.musicPrompt} limit={200} />}
+        {view.lyrics && <CopyField label={s.lyrics} text={view.lyrics} />}
+        {!view.musicPrompt && !view.lyrics && <p className="text-xs text-subtle">{s.noLyrics}</p>}
+      </Card>
+      <Card className="flex flex-col gap-3 self-start p-5">
+        <span className="flex items-center gap-2 text-[11px] font-semibold tracking-[0.2em] text-gold uppercase">
+          <Music className="size-3.5" /> {s.upload}
+        </span>
+        <SoundtrackUpload
+          initialUrl={view.audioUrl}
+          disabled={pending || view.status === "rendering"}
+          onUploaded={onUploaded}
+        />
+        <p className="text-xs leading-relaxed text-subtle">
+          {view.audioSeconds
+            ? s.uploadedHint(
+                formatDuration(view.audioSeconds),
+                Math.round(view.audioSeconds / Math.max(view.scenes.length, 1)),
+              )
+            : s.uploadHint}
+        </p>
+      </Card>
+    </div>
+  );
+}
+
 function ScriptEditor(props: {
   title: string;
   setTitle: (v: string) => void;
@@ -612,6 +686,7 @@ function ScriptEditor(props: {
   const { title, setTitle, draft, setDraft, sceneSeconds, pending } = props;
   const { t } = useI18n();
   const ambient = useContext(AmbientContext);
+  const song = useContext(SongContext);
   const cast = useContext(CastContext);
 
   const update = (i: number, patch: Partial<SceneInput>) =>
@@ -642,7 +717,13 @@ function ScriptEditor(props: {
                   draft.length,
                   ambient.audioSeconds ? formatDuration(ambient.audioSeconds) : null,
                 )
-              : t.project.scriptSummary(draft.length, draft.length * sceneSeconds)}
+              : song
+                ? t.project.song.scriptSummary(
+                    draft.length,
+                    song.audioSeconds ? formatDuration(song.audioSeconds) : null,
+                    song.audioSeconds ? Math.round(song.audioSeconds / Math.max(draft.length, 1)) : null,
+                  )
+                : t.project.scriptSummary(draft.length, draft.length * sceneSeconds)}
           </span>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -805,7 +886,7 @@ function Production({
           body={
             view.niche.format === "ambient"
               ? t.project.renderingBodyLoop
-              : view.niche.format === "wordless"
+              : view.niche.format === "wordless" || view.niche.format === "song"
                 ? t.project.renderingBodyWordless
                 : t.project.renderingBody
           }
@@ -832,7 +913,9 @@ function Production({
               <p className="text-sm text-muted">
                 {view.niche.format === "ambient"
                   ? t.project.ambient.finalBody(total, view.aspectRatio)
-                  : t.project.finalBody(total, view.aspectRatio)}
+                  : view.niche.format === "song"
+                    ? t.project.song.finalBody(total, view.aspectRatio)
+                    : t.project.finalBody(total, view.aspectRatio)}
               </p>
               <div className="flex flex-wrap gap-2">
                 <a href={`${view.finalVideoUrl}&download=${view.fileSlug}`} className={buttonClass("primary", "lg")}>

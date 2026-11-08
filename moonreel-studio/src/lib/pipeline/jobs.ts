@@ -33,8 +33,10 @@ import {
   buildScriptPartPrompt,
   buildScriptPrompt,
   buildShortsPrompt,
+  buildSongScriptPrompt,
   buildThumbnailPrompt,
   buildVideoPrompt,
+  cleanLyrics,
   limitChains,
   MAX_CHARACTERS_PER_SCENE,
   outlineSchema,
@@ -53,8 +55,10 @@ import {
   SHORTS_SHAPE,
   shortsPlanSchema,
   type ShortsPlan,
+  songScriptSchema,
+  type SongScript,
 } from "./prompts";
-import { cameraStillness, extractLastFrame, mediaDuration, renderFinal, renderLoop } from "./render";
+import { cameraStillness, extractLastFrame, mediaDuration, renderFinal, renderLoop, renderSong } from "./render";
 import { captionCues, renderShort, SHORT_MAX_SECONDS, SHORT_MIN_SECONDS } from "./shorts";
 import { composeThumbnail, THUMBNAIL_STYLES, type ThumbnailStyle } from "./thumbnail";
 import { synthesizeNarration } from "./voiceover";
@@ -190,8 +194,13 @@ const SCENE_FIELDS = '{"narration": string, "visualPrompt": string, "camera": st
 const SCRIPT_SHAPE = `{"title": string, "scenes": [${SCENE_FIELDS}]}`;
 const SCENES_SHAPE = `{"scenes": [${SCENE_FIELDS}]}`;
 const OUTLINE_SHAPE = '{"title": string, "beats": [string]}';
+const SONG_SHAPE = `{"title": string, "musicPrompt": string, "lyrics": string, "scenes": [${SCENE_FIELDS}]}`;
 
-async function writeScript(input: Parameters<typeof buildScriptPrompt>[0]): Promise<Script> {
+async function writeScript(input: Parameters<typeof buildScriptPrompt>[0]): Promise<Script | SongScript> {
+  // A song is short, so its lyrics and every scene fit one reply.
+  if (input.niche.format === "song") {
+    return chatJson("song", buildSongScriptPrompt(input), songScriptSchema, SONG_SHAPE);
+  }
   // Ambient shots are short notes, so even a long shot list fits one reply.
   if (input.niche.format === "ambient") {
     return chatJson("script", buildAmbientScriptPrompt(input), scriptSchema, SCRIPT_SHAPE);
@@ -229,7 +238,7 @@ async function writeScript(input: Parameters<typeof buildScriptPrompt>[0]): Prom
  * the script is shown. Skipped without the gateway (it would spend Muse tokens); a failed
  * check keeps the script as written.
  */
-async function screenScript(niche: Niche, script: Script): Promise<Script> {
+async function screenScript<T extends Script>(niche: Niche, script: T): Promise<T> {
   if (!gatewayConfigured()) return script;
   try {
     const { changes } = await chatJson("screen", buildScreenPrompt(niche, script.scenes), screenSchema, SCREEN_SHAPE);
@@ -288,7 +297,12 @@ export async function generateScript(projectId: string) {
       );
       await tx
         .update(projects)
-        .set({ title: script.title, status: "script_ready", error: null })
+        .set({
+          title: script.title,
+          status: "script_ready",
+          error: null,
+          ...("lyrics" in script ? { musicPrompt: script.musicPrompt.trim(), lyrics: cleanLyrics(script.lyrics) } : {}),
+        })
         .where(eq(projects.id, projectId));
     });
   } catch (err) {
@@ -587,6 +601,14 @@ export async function renderProject(projectId: string) {
         aspectRatio: project.aspectRatio,
         outFile: resolveKey(finalKey),
       });
+    } else if (project.niche.format === "song") {
+      if (!project.audioPath) throw new Error("Upload the song first: the video is cut to its length");
+      await renderSong({
+        clips: project.scenes.map((s) => resolveKey(s.clipPath!)),
+        audio: resolveKey(project.audioPath),
+        aspectRatio: project.aspectRatio,
+        outFile: resolveKey(finalKey),
+      });
     } else {
       // A wordless video's scene notes are never spoken or shown, so it has no voice and no subtitles.
       const wordless = project.niche.format === "wordless";
@@ -704,10 +726,10 @@ export async function generatePosts(projectId: string) {
     .where(eq(projects.id, projectId));
 
   try {
-    const ambient = project.niche.format === "ambient";
-    // An ambient video runs as long as its soundtrack and has no per-scene timeline.
+    // Ambient and song videos run as long as their soundtrack and have no subtitle timeline.
+    const soundtrack = project.niche.format === "ambient" || project.niche.format === "song";
     const { starts, total } =
-      ambient && project.finalVideoPath
+      soundtrack && project.finalVideoPath
         ? { starts: [], total: await mediaDuration(resolveKey(project.finalVideoPath)) }
         : await sceneTimes(project.captionsPath, project.scenes.length, project.niche.sceneSeconds);
     const reply = await chatJson(
@@ -734,7 +756,7 @@ export async function generatePosts(projectId: string) {
         description: reply.youtube.description.trim(),
         tags: toTags(reply.youtube.tags),
         chapters:
-          project.aspectRatio === "16:9" && !ambient ? toChapters(reply.youtube.chapters, starts, total) : [],
+          project.aspectRatio === "16:9" && !soundtrack ? toChapters(reply.youtube.chapters, starts, total) : [],
       },
       tiktok: { caption: reply.tiktok.caption.trim() },
       instagram: { caption: reply.instagram.caption.trim() },

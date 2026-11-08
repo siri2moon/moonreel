@@ -55,6 +55,8 @@ export async function getProjectView(id: string) {
     captionsUrl: fileUrl(project.captionsPath, project.updatedAt),
     audioUrl: fileUrl(project.audioPath),
     audioSeconds: project.audioSeconds,
+    musicPrompt: project.musicPrompt,
+    lyrics: project.lyrics,
     referenceImageUrl: fileUrl(project.referenceImagePath),
     posts: project.posts,
     postsStatus: project.postsStatus,

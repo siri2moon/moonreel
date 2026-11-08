@@ -132,6 +132,15 @@ const en = {
       lengthValue: "Soundtrack length",
       submit: "Plan the shots with Muse",
     },
+    song: {
+      description:
+        "Say what the song is about. The AI writes the lyrics, a style prompt for a music generator such as Suno and one animated scene per part of the lyrics. You make the song there and upload it on the next page.",
+      stepRequest: "What the song is about",
+      requestPlaceholder: "e.g. a sad love song about still waiting for someone who has already moved on, slow ballad, female voice",
+      requestHint: "The story, the feeling and, if you like, the genre and the voice. The niche's rules add the rest.",
+      lengthValue: "Length of your song",
+      submit: "Write the song",
+    },
     reference: {
       step: "Reference photo (optional)",
       hint: "A photo of a similar place (a room with a rain-streaked window, a café corner…). Muse copies its layout, materials and light when drawing, which words alone rarely get right.",
@@ -218,6 +227,22 @@ const en = {
       uploading: (percent: number) => `Uploading… ${percent}%`,
       editHint: "Changes apply to this shot only.",
       finalBody: (shots: number, ratio: string) => `${shots} shots looping seamlessly under your soundtrack · ${ratio}`,
+    },
+    song: {
+      lyricsPart: "Lyrics sung in this scene",
+      scriptSummary: (scenes: number, length: string | null, perScene: number | null) =>
+        ` · ${scenes} scenes${length ? ` · song ${length}, ~${perScene}s per scene` : " · upload the song to set the length"}`,
+      makeTitle: "Make the song",
+      makeHint:
+        "Paste the style into the style field of Suno (or another AI music generator) and the lyrics into its lyrics field, then download the song and upload it here. You can do it while the clips are being made.",
+      style: "Style prompt",
+      lyrics: "Lyrics",
+      noLyrics: "This script has no lyrics yet: rewrite it to get them.",
+      upload: "Your song",
+      uploadHint: "The video is cut to the song's length and the scenes share it evenly. The closer the song is to the script's length, the less each clip is stretched.",
+      uploadedHint: (length: string, perScene: number) =>
+        `${length} · about ${perScene}s per scene. Uploading another song renders a finished video again.`,
+      finalBody: (scenes: number, ratio: string) => `${scenes} animated scenes over your song · ${ratio}`,
     },
     thumbnail: {
       eyebrow: "Thumbnail",
@@ -362,7 +387,7 @@ const en = {
     tonePlaceholder: "Funny, lightly sarcastic",
     language: "Narration language",
     format: "Video type",
-    formatHint: "Story videos are narrated scene by scene. Wordless stories tell a short visual parable with no voice and no subtitles; add music in the Reels, Shorts or TikTok app. Ambient loops film a few calm shots of one place and repeat them under a soundtrack you upload.",
+    formatHint: "Story videos are narrated scene by scene. Wordless stories tell a short visual parable with no voice and no subtitles; add music in the Reels, Shorts or TikTok app. Ambient loops film a few calm shots of one place and repeat them under a soundtrack you upload. Songs get AI-written lyrics and a style prompt for a music generator; the song you upload plays over one animated scene per part of the lyrics.",
     fixedCamera: "One fixed camera",
     fixedCameraHint:
       "Muse draws a single frame and every shot starts from it, so the angle never changes and only the motion differs. Otherwise each shot is a different view of the place.",
@@ -370,6 +395,7 @@ const en = {
       story: { title: "Story", sub: "Script, narration, subtitles" },
       wordless: { title: "Wordless story", sub: "Told by pictures, no voice" },
       ambient: { title: "Ambient loop", sub: "Your audio, looping calm footage" },
+      song: { title: "Song", sub: "AI lyrics, your song, animated video" },
     },
     narratorVoice: "Narrator voice (ElevenLabs voice ID)",
     narratorVoiceHint:

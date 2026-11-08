@@ -131,6 +131,15 @@ const vi: Dictionary = {
       lengthValue: "Bằng độ dài audio",
       submit: "Lên cảnh quay với Muse",
     },
+    song: {
+      description:
+        "Nói bài hát về điều gì. AI viết lời, prompt phong cách để dán vào AI tạo nhạc như Suno và một cảnh hoạt hình cho mỗi đoạn lời. Bạn tạo bài hát ở đó rồi tải lên ở trang tiếp theo.",
+      stepRequest: "Bài hát về điều gì",
+      requestPlaceholder: "VD: bài hát buồn về việc vẫn chờ một người đã có người mới, ballad chậm, giọng nữ",
+      requestHint: "Câu chuyện, cảm xúc, và nếu muốn thì cả thể loại lẫn giọng hát. Phần còn lại theo quy tắc của ngách.",
+      lengthValue: "Bằng độ dài bài hát",
+      submit: "Viết bài hát",
+    },
     reference: {
       step: "Ảnh tham chiếu (không bắt buộc)",
       hint: "Ảnh chụp một nơi tương tự (căn phòng có cửa kính nhìn ra mưa, góc quán cafe…). Muse sẽ bám theo bố cục, chất liệu và ánh sáng của ảnh khi vẽ, chính xác hơn chỉ mô tả bằng lời.",
@@ -216,6 +225,22 @@ const vi: Dictionary = {
       uploading: (percent) => `Đang tải lên… ${percent}%`,
       editHint: "Thay đổi chỉ áp dụng cho cảnh này.",
       finalBody: (shots, ratio) => `${shots} cảnh lặp liền mạch theo file âm thanh của bạn · ${ratio}`,
+    },
+    song: {
+      lyricsPart: "Lời hát trong cảnh này",
+      scriptSummary: (scenes, length, perScene) =>
+        ` · ${scenes} cảnh${length ? ` · bài hát ${length}, ~${perScene}s mỗi cảnh` : " · tải bài hát lên để biết độ dài"}`,
+      makeTitle: "Tạo bài hát",
+      makeHint:
+        "Dán phong cách vào ô Style của Suno (hoặc AI tạo nhạc khác) và lời vào ô Lyrics, tải bài hát về rồi tải lên đây. Có thể làm trong lúc các clip đang được tạo.",
+      style: "Prompt phong cách",
+      lyrics: "Lời bài hát",
+      noLyrics: "Kịch bản này chưa có lời: hãy viết lại để có lời bài hát.",
+      upload: "Bài hát của bạn",
+      uploadHint: "Video được cắt theo độ dài bài hát, các cảnh chia đều thời lượng. Bài càng gần độ dài kịch bản thì clip càng ít bị kéo giãn.",
+      uploadedHint: (length, perScene) =>
+        `${length} · khoảng ${perScene}s mỗi cảnh. Tải bài khác lên thì video đã xong sẽ được render lại.`,
+      finalBody: (scenes, ratio) => `${scenes} cảnh hoạt hình theo bài hát của bạn · ${ratio}`,
     },
     thumbnail: {
       eyebrow: "Thumbnail",
@@ -360,7 +385,7 @@ const vi: Dictionary = {
     tonePlaceholder: "Hài hước, châm biếm nhẹ",
     language: "Ngôn ngữ lời thoại",
     format: "Loại video",
-    formatHint: "Video kể chuyện có lời dẫn theo từng cảnh. Truyện không lời kể một ẩn dụ ngắn bằng hình, không giọng đọc, không phụ đề; nhạc thêm sau trong app Reels, Shorts hoặc TikTok. Video lặp nền quay vài cảnh tĩnh của một nơi và lặp lại theo file âm thanh bạn tải lên.",
+    formatHint: "Video kể chuyện có lời dẫn theo từng cảnh. Truyện không lời kể một ẩn dụ ngắn bằng hình, không giọng đọc, không phụ đề; nhạc thêm sau trong app Reels, Shorts hoặc TikTok. Video lặp nền quay vài cảnh tĩnh của một nơi và lặp lại theo file âm thanh bạn tải lên. Bài hát: AI viết lời và prompt phong cách cho AI tạo nhạc; bài hát bạn tải lên được phát trên các cảnh hoạt hình, mỗi cảnh một đoạn lời.",
     fixedCamera: "Một góc máy cố định",
     fixedCameraHint:
       "Muse vẽ một khung hình duy nhất và mọi cảnh đều bắt đầu từ đó, nên góc máy không đổi, chỉ chuyển động là khác nhau. Nếu tắt, mỗi cảnh là một góc nhìn khác của cùng nơi đó.",
@@ -368,6 +393,7 @@ const vi: Dictionary = {
       story: { title: "Kể chuyện", sub: "Kịch bản, lời dẫn, phụ đề" },
       wordless: { title: "Truyện không lời", sub: "Kể bằng hình, không giọng đọc" },
       ambient: { title: "Lặp nền", sub: "Audio của bạn, cảnh lặp nhẹ nhàng" },
+      song: { title: "Bài hát", sub: "AI viết lời, bạn tạo nhạc, video hoạt hình" },
     },
     narratorVoice: "Giọng thuyết minh (ElevenLabs voice ID)",
     narratorVoiceHint:
