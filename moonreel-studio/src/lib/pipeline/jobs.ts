@@ -58,7 +58,8 @@ import {
   songScriptSchema,
   type SongScript,
 } from "./prompts";
-import { cameraStillness, extractLastFrame, mediaDuration, renderFinal, renderLoop, renderSong } from "./render";
+import { CAST_CHECK_ATTEMPTS, castCheckAvailable, castLimits, castProblem } from "./cast-check";
+import { cameraStillness, extractLastFrame, mediaDuration, renderFinal, renderLoop, renderSong, sampleFrames } from "./render";
 import { captionCues, renderShort, SHORT_MAX_SECONDS, SHORT_MIN_SECONDS } from "./shorts";
 import { composeThumbnail, THUMBNAIL_STYLES, type ThumbnailStyle } from "./thumbnail";
 import { synthesizeNarration } from "./voiceover";
@@ -453,6 +454,8 @@ export async function produceScene(sceneId: string) {
 
   // The scene as last sent to Muse; a declined step rewrites it (see withRewrite).
   let shot = scene;
+  // Who may be on screen; null when there is no cast to duplicate or no vision model to check.
+  const limits = castCheckAvailable() ? castLimits(cast, onScreen, scene.visualPrompt) : null;
   try {
     let keyframePath = scene.keyframePath;
     if (!keyframePath && niche.format === "ambient" && niche.fixedCamera && scene.index > 0) {
@@ -470,7 +473,12 @@ export async function produceScene(sceneId: string) {
         await enqueueScenes([sceneId], { startAfterSeconds: CHAINED_CLIP_WAIT_S });
         return;
       }
-      if (chained) {
+      // The previous clip's last frame carries over whatever it drew; a doubled cast member
+      // there would start this shot too, so such a frame is replaced by a fresh keyframe.
+      const doubled = chained && limits && (await castProblem([await toDataUrl(chained)], limits, false));
+      if (doubled) {
+        console.warn(`[scene ${scene.index + 1}] the previous clip ends with ${doubled}; drawing a keyframe instead of chaining`);
+      } else if (chained) {
         keyframePath = chained;
         await db.update(scenes).set({ keyframePath }).where(eq(scenes.id, sceneId));
       } else {
@@ -480,24 +488,38 @@ export async function produceScene(sceneId: string) {
     if (!keyframePath) {
       if (!(await advance(sceneId, "keyframe"))) return;
       const reference = await imageReference(project, onScreen);
-      const drawn = await withRewrite(shot, niche, "image", (s) =>
-        withRetry("keyframe", () =>
-          provider.generateImage({
-            prompt: buildKeyframePrompt({
-              scene: s,
-              niche,
-              characters: onScreen,
-              board: reference.board,
-              placeReference: !!project.referenceImagePath,
+      const draw = async () => {
+        const drawn = await withRewrite(shot, niche, "image", (s) =>
+          withRetry("keyframe", () =>
+            provider.generateImage({
+              prompt: buildKeyframePrompt({
+                scene: s,
+                niche,
+                characters: onScreen,
+                board: reference.board,
+                placeReference: !!project.referenceImagePath,
+              }),
+              aspectRatio: project.aspectRatio,
+              referenceImage: reference.image,
             }),
-            aspectRatio: project.aspectRatio,
-            referenceImage: reference.image,
-          }),
-        ),
-      );
-      shot = drawn.scene;
-      const image = drawn.result;
-      keyframePath = await saveFile(`${prefix}-keyframe${image.ext}`, image.data);
+          ),
+        );
+        shot = drawn.scene;
+        return saveFile(`${prefix}-keyframe${drawn.result.ext}`, drawn.result.data);
+      };
+      keyframePath = await draw();
+      // Sequential on purpose: each attempt is a new Muse image, drawn only if the last one
+      // doubled a cast member. These are Muse and vision calls, not DB queries.
+      for (let attempt = 1; limits; attempt++) {
+        const problem = await castProblem([await toDataUrl(keyframePath)], limits, true);
+        if (!problem) break;
+        await db.update(scenes).set({ keyframePath }).where(eq(scenes.id, sceneId));
+        if (attempt >= CAST_CHECK_ATTEMPTS) {
+          throw new Error(`Cast check: every keyframe (${attempt}) had ${problem}. Edit the shot so the cast appears once, then retry.`);
+        }
+        console.warn(`[scene ${scene.index + 1}] keyframe has ${problem}; drawing it again`);
+        keyframePath = await draw();
+      }
       await db.update(scenes).set({ keyframePath }).where(eq(scenes.id, sceneId));
     }
 
@@ -538,6 +560,19 @@ export async function produceScene(sceneId: string) {
         console.warn(`[scene ${scene.index + 1}] camera moved (stillness ${stillness.toFixed(2)}), making the clip again`);
         clipPath = await makeClip();
       }
+    }
+    // Muse adds a second copy of a character mid-clip more often than it draws one in a
+    // keyframe, so frames from the middle to the end are checked. Sequential on purpose: each
+    // attempt is a new Muse clip. These are Muse, ffmpeg and vision calls, not DB queries.
+    for (let attempt = 1; limits; attempt++) {
+      const problem = await castProblem(await sampleFrames(resolveKey(clipPath), [0.35, 0.65, 0.95]), limits, false);
+      if (!problem) break;
+      if (attempt >= CAST_CHECK_ATTEMPTS) {
+        await db.update(scenes).set({ clipPath }).where(eq(scenes.id, sceneId));
+        throw new Error(`Cast check: every clip (${attempt}) had ${problem}. Edit the shot or redo it with a new keyframe.`);
+      }
+      console.warn(`[scene ${scene.index + 1}] clip has ${problem}; making the clip again`);
+      clipPath = await makeClip();
     }
     await db
       .update(scenes)
@@ -615,7 +650,7 @@ export async function renderProject(projectId: string) {
       srtKey = wordless ? null : `projects/${projectId}/captions.srt`;
       const voiceId = wordless ? null : project.niche.narratorVoiceId;
       const voices = voiceId
-        ? await synthesizeNarration(voiceId, project.scenes.map((s) => s.narration))
+        ? await synthesizeNarration(voiceId, project.scenes.map((s) => s.narration), project.niche.language)
         : [];
       await renderFinal({
         clips: project.scenes.map((s, i) => ({

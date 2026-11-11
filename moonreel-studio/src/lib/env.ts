@@ -15,8 +15,12 @@ const schema = z.object({
   CF_AIG_PROVIDER_KEY: z.string().optional(),
   CF_AIG_BYOK_ALIAS: z.string().optional(),
   SCRIPT_MODEL: z.string().default("deepseek/deepseek-chat"),
+  // Checks drawn frames for duplicated or extra characters (through the gateway).
+  VISION_MODEL: z.string().default("workers-ai/@cf/meta/llama-4-scout-17b-16e-instruct"),
   ELEVENLABS_API_KEY: z.string().optional(),
   ELEVENLABS_MODEL: z.string().default("eleven_multilingual_v2"),
+  // Local VoiceStudio, used by narrator voice ids starting with "voicestudio:".
+  VOICESTUDIO_BASE_URL: z.string().url().default("http://127.0.0.1:3900"),
   STORAGE_DIR: z.string().default(path.join(os.homedir(), ".moonreel", "storage")),
   // Your own niches as JSON files, kept out of the repository (see scripts/private-niches.ts).
   NICHES_DIR: z.string().default(path.join(os.homedir(), ".moonreel", "niches")),

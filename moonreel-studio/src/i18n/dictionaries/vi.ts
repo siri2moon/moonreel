@@ -395,9 +395,9 @@ const vi: Dictionary = {
       ambient: { title: "Lặp nền", sub: "Audio của bạn, cảnh lặp nhẹ nhàng" },
       song: { title: "Bài hát", sub: "AI viết lời, bạn tạo nhạc, video hoạt hình" },
     },
-    narratorVoice: "Giọng thuyết minh (ElevenLabs voice ID)",
+    narratorVoice: "Giọng thuyết minh (ElevenLabs voice ID hoặc voicestudio:<profile>)",
     narratorVoiceHint:
-      "Không bắt buộc. Đọc cả video bằng một giọng duy nhất, clip chỉ giữ tiếng môi trường. Cần ELEVENLABS_API_KEY trong .env.",
+      "Không bắt buộc. Đọc cả video bằng một giọng duy nhất, clip chỉ giữ tiếng môi trường. Cần ELEVENLABS_API_KEY trong .env, hoặc ghi voicestudio:<profile id> để dùng giọng trong app VoiceStudio trên máy (để app mở khi ghép video).",
     visuals: "Hình ảnh",
     visualsHint: "Phong cách áp lên mọi cảnh, viết bằng tiếng Anh.",
     visualStyle: "Phong cách hình ảnh",

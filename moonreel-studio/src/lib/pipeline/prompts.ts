@@ -464,6 +464,8 @@ camera: ${shot.camera}
 
 # Rules
 - If the reply suggests a direction, follow it as long as it keeps the story beat.
+- Keep every character name in the visual as it is and do not describe their looks (clothes, colours, breed): those are added from the cast, and new looks make a character change between shots.
+- Do not add people or animals that the visual does not already have.
 ${shotRules(niche)}
 
 # Output
@@ -711,6 +713,9 @@ export function buildKeyframePrompt(input: {
       (placeReference
         ? `The main character is ${characterVisual(character)}.`
         : `The main character is ${characterVisual(character)}. Keep the character exactly identical to the reference image (face, hair, outfit, colors, proportions).`),
+    // Muse has drawn a cast member twice in one frame (see cast-check.ts).
+    characters.length > 0 &&
+      `${characters.map((c) => c.name).join(" and ")} each appear exactly once: no second copy, twin, look-alike or reflection of them, and no other person or animal unless the scene names one.`,
     niche.visualStyle && `Visual style: ${niche.visualStyle}.`,
     "Single frame from a video, cinematic composition, no text, no captions, no watermark.",
   ]
@@ -748,6 +753,9 @@ export function buildVideoPrompt(input: {
     scene.camera && `Camera: ${scene.camera}.`,
     niche.visualStyle && `Visual style: ${niche.visualStyle}.`,
     names && `Keep ${names} looking exactly like in the first frame.`,
+    // Muse has added a second copy of a character halfway through a clip (see cast-check.ts).
+    names &&
+      `Everyone in the first frame stays one and the same: never a second copy of ${names}, and no new person or animal enters unless the scene says so.`,
     niche.format === "song"
       ? // The uploaded song replaces the clip's sound; lips moving to Muse's own audio would not match it.
         "Nobody speaks or sings and nobody's lips move: no speech, no singing, no dialogue, no music. Soft ambient sound only."

@@ -1,5 +1,7 @@
 import { spawn } from "node:child_process";
-import { rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import type { AspectRatio } from "@/db/schema";
 
 // Muse clips are 720p; they are upscaled to 1080p, because YouTube gives 1080p uploads a far
@@ -204,6 +206,25 @@ export async function cameraStillness(file: string) {
  */
 export async function extractLastFrame(file: string, out: string) {
   await run("ffmpeg", ["-hide_banner", "-loglevel", "error", "-y", "-sseof", "-0.5", "-i", file, "-update", "1", "-q:v", "2", out]);
+}
+
+/** Frames at these fractions of the clip, as small JPEG data URLs for an image check. */
+export async function sampleFrames(file: string, fractions: number[]) {
+  const { duration } = await probe(file);
+  const dir = await mkdtemp(path.join(os.tmpdir(), "moonreel-frames-"));
+  try {
+    // Independent ffmpeg processes, not queries.
+    return await Promise.all(
+      fractions.map(async (f, i) => {
+        const out = path.join(dir, `${i}.jpg`);
+        const t = Math.min(Math.max(0, duration * f), Math.max(0, duration - 0.3));
+        await run("ffmpeg", ["-hide_banner", "-loglevel", "error", "-y", "-ss", t.toFixed(3), "-i", file, "-frames:v", "1", "-vf", "scale=768:-2", "-q:v", "4", out]);
+        return `data:image/jpeg;base64,${(await readFile(out)).toString("base64")}`;
+      }),
+    );
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 }
 
 export async function mediaDuration(file: string) {

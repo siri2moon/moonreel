@@ -33,9 +33,24 @@ export function gatewayConfigured() {
  * gateway, BYOK); with a provider key, that key is sent and the token goes in
  * `cf-aig-authorization`.
  */
-export async function gatewayChat(prompt: string): Promise<string> {
+export function gatewayChat(prompt: string): Promise<string> {
+  return gatewayRequest(env().SCRIPT_MODEL, prompt);
+}
+
+/**
+ * One question about images (data URLs), answered by a vision model on the gateway
+ * (VISION_MODEL, by default Llama 4 Scout on Workers AI). Used to check drawn frames.
+ */
+export function gatewayVision(prompt: string, images: string[]): Promise<string> {
+  return gatewayRequest(env().VISION_MODEL, [
+    { type: "text", text: prompt },
+    ...images.map((url) => ({ type: "image_url", image_url: { url } })),
+  ]);
+}
+
+async function gatewayRequest(model: string, content: unknown): Promise<string> {
   const url = baseUrl();
-  const { CF_AIG_TOKEN, CF_AIG_PROVIDER_KEY, CF_AIG_GATEWAY_ID, CF_AIG_BYOK_ALIAS, SCRIPT_MODEL } = env();
+  const { CF_AIG_TOKEN, CF_AIG_PROVIDER_KEY, CF_AIG_GATEWAY_ID, CF_AIG_BYOK_ALIAS } = env();
   if (!url) throw new GatewayError("Cloudflare AI Gateway is not configured");
 
   const alias = CF_AIG_BYOK_ALIAS || learnedAlias;
@@ -53,7 +68,7 @@ export async function gatewayChat(prompt: string): Promise<string> {
   const res = await fetch(`${url}/chat/completions`, {
     method: "POST",
     headers,
-    body: JSON.stringify({ model: SCRIPT_MODEL, messages: [{ role: "user", content: prompt }] }),
+    body: JSON.stringify({ model, messages: [{ role: "user", content }] }),
     signal: AbortSignal.timeout(CHAT_TIMEOUT_MS),
   });
   const text = await res.text();
@@ -63,12 +78,12 @@ export async function gatewayChat(prompt: string): Promise<string> {
     if (aliases && aliases.length === 1) {
       learnedAlias = aliases[0].slice(1, -1);
       console.warn(`[gateway] using BYOK alias '${learnedAlias}'; set CF_AIG_BYOK_ALIAS=${learnedAlias} in .env to skip this lookup`);
-      return gatewayChat(prompt);
+      return gatewayRequest(model, content);
     }
     throw new GatewayError(`AI Gateway ${res.status}: ${text.slice(0, 500)}`);
   }
-  const content = (JSON.parse(text) as { choices?: { message?: { content?: string | null } }[] })
+  const reply = (JSON.parse(text) as { choices?: { message?: { content?: string | null } }[] })
     .choices?.[0]?.message?.content;
-  if (!content) throw new GatewayError("AI Gateway returned an empty chat response");
-  return content;
+  if (!reply) throw new GatewayError("AI Gateway returned an empty chat response");
+  return reply;
 }

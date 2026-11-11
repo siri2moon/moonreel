@@ -219,7 +219,7 @@ export function NicheForm({
             name="narratorVoiceId"
             defaultValue={niche?.narratorVoiceId ?? ""}
             className={`${inputClass} font-mono`}
-            placeholder="voice ID from elevenlabs.io → Voices"
+            placeholder="ElevenLabs voice ID or voicestudio:<profile id>"
           />
         </Field>
       </Section>

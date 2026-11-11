@@ -397,9 +397,9 @@ const en = {
       ambient: { title: "Ambient loop", sub: "Your audio, looping calm footage" },
       song: { title: "Song", sub: "AI lyrics, your song, animated video" },
     },
-    narratorVoice: "Narrator voice (ElevenLabs voice ID)",
+    narratorVoice: "Narrator voice (ElevenLabs voice ID or voicestudio:<profile>)",
     narratorVoiceHint:
-      "Optional. Reads the whole video in this one voice and keeps only ambient sound from the clips. Needs ELEVENLABS_API_KEY in .env.",
+      "Optional. Reads the whole video in this one voice and keeps only ambient sound from the clips. Needs ELEVENLABS_API_KEY in .env, or write voicestudio:<profile id> to use a voice profile in the local VoiceStudio app (keep the app open while rendering).",
     visuals: "Visuals",
     visualsHint: "Style applied to every scene, written in English.",
     visualStyle: "Visual style",
