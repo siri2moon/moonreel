@@ -46,6 +46,9 @@ export function loadFonts() {
 
 export type Word = { text: string; accent: boolean };
 
+// A closing star may be followed by punctuation: `*FALSCH*?`.
+const CLOSING_STAR = /\*+([.,!?:;…)»"'“”’]*)$/;
+
 /** `LION VS *CAPE BUFFALO*` → words, the starred ones drawn in the accent colour. */
 export function parseHeadline(markup: string): Word[] {
   const words: Word[] = [];
@@ -53,8 +56,8 @@ export function parseHeadline(markup: string): Word[] {
   for (const token of markup.trim().split(/\s+/)) {
     if (!token) continue;
     const opens = token.startsWith("*");
-    const closes = token.endsWith("*") && token.length > 1;
-    const text = token.replace(/^\*+|\*+$/g, "");
+    const closes = CLOSING_STAR.test(token) && token.length > 1;
+    const text = token.replace(/^\*+/, "").replace(CLOSING_STAR, "$1");
     if (!text) continue;
     words.push({ text, accent: inAccent || opens });
     if (opens && !closes) inAccent = true;
