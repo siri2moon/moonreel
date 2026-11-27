@@ -32,6 +32,7 @@ async function EditCharacter({ params }: { params: PageProps<"/[lang]/characters
           name: c.name,
           appearance: c.appearance,
           personality: c.personality,
+          voice: c.voice,
           referenceStatus: c.referenceStatus,
           referenceError: c.referenceError,
           referenceUrl: fileUrl(c.referenceImagePath, c.updatedAt),

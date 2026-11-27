@@ -939,8 +939,8 @@ function Production({
         <>
           <ThumbnailPanel view={view} pending={pending} onSubmit={onThumbnail} />
           <PostsPanel view={view} pending={pending} onRegenerate={onRegeneratePosts} onReel={onReel} />
-          {/* Shorts are cut from narrated videos; a wordless video is already short. */}
-          {view.niche.format === "story" && (
+          {/* Shorts are cut from spoken videos; a wordless video is already short. */}
+          {(view.niche.format === "story" || view.niche.format === "dialogue") && (
             <ShortsPanel
               view={view}
               pending={pending}

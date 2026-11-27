@@ -179,6 +179,7 @@ const characterSchema = z.object({
   name: z.string().trim().min(1),
   appearance: z.string().trim().min(1),
   personality: z.string().trim().default(""),
+  voice: z.string().trim().default(""),
   referenceMode: z.enum(["keep", "upload", "generate"]).default("keep"),
 });
 
@@ -193,6 +194,7 @@ export async function saveCharacter(id: string | null, formData: FormData) {
     name: formData.get("name"),
     appearance: formData.get("appearance"),
     personality: formData.get("personality") ?? "",
+    voice: formData.get("voice") ?? "",
     referenceMode: formData.get("referenceMode") ?? "keep",
   });
 

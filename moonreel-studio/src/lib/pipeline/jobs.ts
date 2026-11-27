@@ -57,6 +57,7 @@ import {
   type ShortsPlan,
   songScriptSchema,
   type SongScript,
+  spokenText,
 } from "./prompts";
 import { CAST_CHECK_ATTEMPTS, castCheckAvailable, castLimits, castProblem } from "./cast-check";
 import { cameraStillness, extractLastFrame, mediaDuration, renderFinal, renderLoop, renderSong, sampleFrames } from "./render";
@@ -534,7 +535,7 @@ export async function produceScene(sceneId: string) {
               scene: s,
               niche,
               characters: onScreen,
-              speaker: cast.length === 1 ? cast[0] : undefined,
+              speaker: cast.length === 1 && niche.format === "story" ? cast[0] : undefined,
             }),
             aspectRatio: project.aspectRatio,
             durationSeconds: niche.sceneSeconds,
@@ -648,14 +649,15 @@ export async function renderProject(projectId: string) {
       // A wordless video's scene notes are never spoken or shown, so it has no voice and no subtitles.
       const wordless = project.niche.format === "wordless";
       srtKey = wordless ? null : `projects/${projectId}/captions.srt`;
-      const voiceId = wordless ? null : project.niche.narratorVoiceId;
+      // Dialogue clips already carry the characters' voices from Muse.
+      const voiceId = wordless || project.niche.format === "dialogue" ? null : project.niche.narratorVoiceId;
       const voices = voiceId
         ? await synthesizeNarration(voiceId, project.scenes.map((s) => s.narration), project.niche.language)
         : [];
       await renderFinal({
         clips: project.scenes.map((s, i) => ({
           file: resolveKey(s.clipPath!),
-          narration: s.narration,
+          narration: spokenText(s.narration, project.niche),
           voice: voices[i],
         })),
         aspectRatio: project.aspectRatio,
@@ -1016,7 +1018,7 @@ export async function renderShortClip(shortId: string) {
       seconds,
       hook: short.hook,
       captions: captionCues(
-        project.scenes.slice(from, to + 1).map((s, i) => ({ narration: s.narration, ...spans[from + i] })),
+        project.scenes.slice(from, to + 1).map((s, i) => ({ narration: spokenText(s.narration, project.niche), ...spans[from + i] })),
         start,
       ),
       accent: project.niche.thumbnailAccent,

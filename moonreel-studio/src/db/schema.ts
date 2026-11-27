@@ -22,8 +22,10 @@ export const aspectRatioEnum = pgEnum("aspect_ratio", ["9:16", "16:9"]);
  * carry a shot note, nothing is spoken and there are no subtitles.
  * "song": a music video. The AI writes the lyrics and a style prompt the user pastes into a
  * music generator (Suno…); the song they upload plays over the clips, one scene per lyric part.
+ * "dialogue": the characters talk on screen in their own voices, no narrator. Each scene's
+ * narration holds its lines as "Name: words", one per line, and Muse speaks them in the clip.
  */
-export const nicheFormatEnum = pgEnum("niche_format", ["story", "ambient", "wordless", "song"]);
+export const nicheFormatEnum = pgEnum("niche_format", ["story", "ambient", "wordless", "song", "dialogue"]);
 
 export const referenceStatusEnum = pgEnum("reference_status", [
   "none",
@@ -160,6 +162,8 @@ export const characters = pgTable("characters", {
   name: text("name").notNull(),
   appearance: text("appearance").notNull(),
   personality: text("personality").notNull().default(""),
+  /** How the character sounds when it talks on screen (dialogue videos), e.g. "high, bright little girl's voice". */
+  voice: text("voice").notNull().default(""),
   referenceImagePath: text("reference_image_path"),
   referenceStatus: referenceStatusEnum("reference_status").notNull().default("none"),
   referenceError: text("reference_error"),

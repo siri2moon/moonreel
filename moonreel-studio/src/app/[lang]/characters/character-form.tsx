@@ -12,6 +12,7 @@ export interface CharacterFormValue {
   name: string;
   appearance: string;
   personality: string;
+  voice: string;
   referenceStatus: string;
   referenceError: string | null;
   referenceUrl: string | null;
@@ -61,6 +62,9 @@ export function CharacterForm({ character }: { character?: CharacterFormValue })
             className={inputClass}
             placeholder={f.personalityPlaceholder}
           />
+        </Field>
+        <Field label={f.voice} hint={f.voiceHint}>
+          <input name="voice" defaultValue={character?.voice} className={inputClass} placeholder={f.voicePlaceholder} />
         </Field>
 
         <fieldset className="flex flex-col gap-3">

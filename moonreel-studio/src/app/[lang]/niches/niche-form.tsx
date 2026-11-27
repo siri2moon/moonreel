@@ -5,6 +5,7 @@ import {
   Clapperboard,
   Drama,
   ImageIcon,
+  MessagesSquare,
   Monitor,
   Music,
   Palette,
@@ -152,12 +153,13 @@ export function NicheForm({
       >
         <fieldset className="flex flex-col gap-2">
           <legend className="mb-2 text-[13px] font-medium">{f.format}</legend>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {[
               { value: "story" as const, Icon: BookOpen },
               { value: "wordless" as const, Icon: Drama },
               { value: "ambient" as const, Icon: Repeat },
               { value: "song" as const, Icon: Music },
+              { value: "dialogue" as const, Icon: MessagesSquare },
             ].map(({ value, Icon }) => (
               <label
                 key={value}

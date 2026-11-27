@@ -343,6 +343,9 @@ const vi: Dictionary = {
     appearanceHint: "Tuổi, giới tính, khuôn mặt, tóc, trang phục, màu sắc, phong cách (3D / anime / realistic…)",
     personality: "Tính cách / cách nói chuyện",
     personalityPlaceholder: "Điềm đạm, hài hước, hay dùng ví dụ đời thường",
+    voice: "Giọng nói (tiếng Anh)",
+    voiceHint: "Nhân vật nghe thế nào khi tự nói trên hình trong video thoại",
+    voicePlaceholder: "High, bright little girl's voice, quick and whiny",
     reference: "Ảnh tham chiếu",
     keep: "Giữ ảnh hiện tại",
     generate: "Muse vẽ từ mô tả",
@@ -385,7 +388,7 @@ const vi: Dictionary = {
     tonePlaceholder: "Hài hước, châm biếm nhẹ",
     language: "Ngôn ngữ lời thoại",
     format: "Loại video",
-    formatHint: "Video kể chuyện có lời dẫn theo từng cảnh. Truyện không lời kể một ẩn dụ ngắn bằng hình, không giọng đọc, không phụ đề; nhạc thêm sau trong app Reels, Shorts hoặc TikTok. Video lặp nền quay vài cảnh tĩnh của một nơi và lặp lại theo file âm thanh bạn tải lên. Bài hát: AI viết lời và prompt phong cách cho AI tạo nhạc; bài hát bạn tải lên được phát trên các cảnh hoạt hình, mỗi cảnh một đoạn lời.",
+    formatHint: "Video kể chuyện có lời dẫn theo từng cảnh. Truyện không lời kể một ẩn dụ ngắn bằng hình, không giọng đọc, không phụ đề; nhạc thêm sau trong app Reels, Shorts hoặc TikTok. Video lặp nền quay vài cảnh tĩnh của một nơi và lặp lại theo file âm thanh bạn tải lên. Bài hát: AI viết lời và prompt phong cách cho AI tạo nhạc; bài hát bạn tải lên được phát trên các cảnh hoạt hình, mỗi cảnh một đoạn lời. Video thoại không có người dẫn: nhân vật tự nói lời thoại trên hình, bằng giọng đặt cho từng nhân vật.",
     fixedCamera: "Một góc máy cố định",
     fixedCameraHint:
       "Muse vẽ một khung hình duy nhất và mọi cảnh đều bắt đầu từ đó, nên góc máy không đổi, chỉ chuyển động là khác nhau. Nếu tắt, mỗi cảnh là một góc nhìn khác của cùng nơi đó.",
@@ -394,6 +397,7 @@ const vi: Dictionary = {
       wordless: { title: "Truyện không lời", sub: "Kể bằng hình, không giọng đọc" },
       ambient: { title: "Lặp nền", sub: "Audio của bạn, cảnh lặp nhẹ nhàng" },
       song: { title: "Bài hát", sub: "AI viết lời, bạn tạo nhạc, video hoạt hình" },
+      dialogue: { title: "Thoại", sub: "Nhân vật tự nói trên hình" },
     },
     narratorVoice: "Giọng thuyết minh (ElevenLabs voice ID hoặc voicestudio:<profile>)",
     narratorVoiceHint:

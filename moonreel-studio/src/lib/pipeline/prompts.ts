@@ -42,12 +42,57 @@ const WORDLESS =
 const SONG =
   "The song plays over the video: nobody on screen sings, speaks or moves their lips to it. The characters tell the video's story with gestures, looks and actions.";
 
+// A dialogue video has no narrator: the cast speak their own lines, which Muse voices in the clip.
+const DIALOGUE_RULE = (cast: Character[]) =>
+  `There is no narrator and no voice-over: the characters talk on screen in their own voices. Each scene's "narration" is that scene's dialogue: 1 or 2 short lines, each on its own line written as "Name: words"${
+    cast.length > 0 ? ", the name exactly as in the cast list, and only a character listed in that scene's \"characters\" speaks" : ", the name being who is talking in that shot"
+  }. Everyone else in the shot stays silent and reacts.`;
+
+/** A dialogue scene's lines, from "Name: words" lines; a line with no name keeps speaker null. */
+export function dialogueLines(narration: string) {
+  return narration
+    .split(/\n+/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const m = line.match(/^([^:"“”]{1,40}?)\s*:\s*(.+)$/);
+      return m ? { speaker: m[1].trim(), text: m[2].trim() } : { speaker: null, text: line };
+    });
+}
+
+/** What is heard in a scene, for subtitles and captions: dialogue loses its speaker labels. */
+export function spokenText(narration: string, niche: Pick<Niche, "format">) {
+  return niche.format === "dialogue"
+    ? dialogueLines(narration)
+        .map((l) => l.text)
+        .join(" ")
+    : narration;
+}
+
+function voiceNote(c: Character) {
+  return c.voice ? `. Voice: ${c.voice}` : "";
+}
+
 /** Most cast members drawn into one shot; more than this blurs together in one reference image. */
 export const MAX_CHARACTERS_PER_SCENE = 3;
 
 function castBlock(cast: Character[], niche: Niche) {
   const wordless = niche.format === "wordless";
   const voiceOver = !!niche.narratorVoiceId;
+  if (niche.format === "dialogue") {
+    if (cast.length === 0) return `No recurring character. ${DIALOGUE_RULE(cast)} Scenes may use any visuals that fit the topic.`;
+    return [
+      `Recurring ${cast.length > 1 ? "cast (always exactly these characters, always looking exactly like this)" : "character"}:`,
+      ...cast.map(
+        (c, i) =>
+          `- ${c.name}${i === 0 && cast.length > 1 ? " (lead)" : ""}: ${c.appearance}${c.personality ? `. Personality / way of speaking: ${c.personality}` : ""}${voiceNote(c)}`,
+      ),
+      cast.length > 1
+        ? `${cast[0].name} is the lead and appears in most scenes. Every scene lists in "characters" the names of the cast members on screen, at most ${MAX_CHARACTERS_PER_SCENE}, the most important first.`
+        : "The character appears on screen in every scene.",
+      DIALOGUE_RULE(cast),
+    ].join("\n");
+  }
   if (niche.format === "song") {
     if (cast.length === 0) return `No recurring character. ${SONG} Scenes may use any visuals that fit the video's story.`;
     return [
@@ -124,7 +169,7 @@ ${niche.description}
 ${niche.scriptInstructions}
 
 Tone: ${niche.tone || "natural"}
-${niche.format === "wordless" ? "Audience language" : "Narration language"}: ${niche.language}
+${niche.format === "wordless" ? "Audience language" : niche.format === "dialogue" ? "Dialogue language" : "Narration language"}: ${niche.language}
 Format: ${ASPECT_LABEL[aspectRatio]}
 
 # ${cast.length > 1 ? "Cast" : "Character"}
@@ -160,7 +205,9 @@ function sceneRules(niche: Niche, cast: Character[]) {
 - ${
     niche.format === "wordless"
       ? `"narration": a shot note in ${niche.language}, at most 10 words, saying what the shot shows (e.g. "He laughs at the tiny sapling"). It is never spoken or shown.`
-      : `"narration": what is spoken in that scene, in ${niche.language}, at most 25 words, so it fits ${niche.sceneSeconds} seconds.`
+      : niche.format === "dialogue"
+        ? `"narration": the dialogue spoken on screen in that scene, in ${niche.language}: 1 or 2 lines, each "Name: words" on its own line, at most 16 words in all so the characters can say it and act in ${niche.sceneSeconds} seconds.`
+        : `"narration": what is spoken in that scene, in ${niche.language}, at most 25 words, so it fits ${niche.sceneSeconds} seconds.`
   }
 - "visualPrompt": in English, describe what is on screen (setting, action, expression, lighting). Refer to characters by name and do not describe their looks, they are added automatically. No on-screen text.
 - "camera": in English, one slow, smooth camera move (e.g. "slow push-in", "static medium shot"). Avoid fast action: it distorts the character.
@@ -176,7 +223,9 @@ function storyEnds(niche: Niche, unit: "scene" | "beat") {
   const first = unit === "scene" ? "Scene 1 must hook" : "Beat 1 hooks";
   return niche.format === "wordless"
     ? `${first} the viewer in the first 2 seconds with a situation that makes them guess. The last ${unit} is the payoff that makes the lesson land without a word; no call to action.`
-    : `${first} the viewer in the first 2 seconds. The last ${unit} ends with a call to action.`;
+    : niche.format === "dialogue"
+      ? `${first} the viewer in the first 2 seconds with a line or a situation that makes them want the rest. The last ${unit} lands the punchline; the characters never talk to the viewer or ask them to follow.`
+      : `${first} the viewer in the first 2 seconds. The last ${unit} ends with a call to action.`;
 }
 
 /** The whole script in one reply, for scripts up to SCRIPT_PART_SCENES scenes. */
@@ -402,7 +451,9 @@ function shotRules(niche: Niche) {
       ? "it is a short shot note that is never spoken"
       : niche.format === "song"
         ? "it holds the sung lyrics: keep them word for word"
-        : "it is spoken over the clip, so keep it natural"
+        : niche.format === "dialogue"
+          ? 'it is the dialogue the characters speak on screen: keep each "Name: words" line and its meaning'
+          : "it is spoken over the clip, so keep it natural"
   }. It is sent to the video model too, so it must pass the filter as well.
 - "camera" is one short camera move; change it too, since the model refuses a request it has already refused.`;
 }
@@ -541,7 +592,11 @@ ${script}`
 # Shots, numbered by scene
 The video has no words: nobody speaks and no text appears. The story is told by these shots alone:
 ${script}`
-      : `
+      : niche.format === "dialogue"
+        ? `
+# Dialogue, numbered by scene (the characters speak on screen)
+${script}`
+        : `
 # Narration, numbered by scene
 ${script}`
 }
@@ -761,6 +816,8 @@ export function buildVideoPrompt(input: {
         "Nobody speaks or sings and nobody's lips move: no speech, no singing, no dialogue, no music. Soft ambient sound only."
       : niche.format === "wordless"
       ? "Nobody speaks: no speech, no dialogue, no narration, no music. Natural sound effects only."
+      : niche.format === "dialogue"
+        ? dialogueDirection(scene.narration, niche, characters)
       : niche.narratorVoiceId
         ? // The narrator voice is added at render time; any speech here would talk over it.
           "Natural ambient sound only: no speech, no narration, no music."
@@ -774,6 +831,24 @@ export function buildVideoPrompt(input: {
   ]
     .filter(Boolean)
     .join(" ");
+}
+
+/** The lines Muse speaks in a dialogue clip, each with its speaker's voice, lips matching. */
+function dialogueDirection(narration: string, niche: Niche, characters: Character[]) {
+  const byName = new Map(characters.map((c) => [c.name.toLowerCase(), c]));
+  const lines = dialogueLines(narration);
+  const said = lines.map((line, i) => {
+    const c = line.speaker ? byName.get(line.speaker.toLowerCase()) : undefined;
+    const who = c ? `${c.name}${c.voice ? ` (voice: ${c.voice})` : ""}` : (line.speaker ?? "the character on screen");
+    return `${lines.length > 1 ? (i === 0 ? "First " : "Then ") : ""}${who} says: "${line.text}"`;
+  });
+  return [
+    `Dialogue in ${niche.language}, spoken on screen with mouth movements matching every word.`,
+    ...said,
+    // The test clip (Nov 2026) pushed in on the back of the speaker's head for her line.
+    "Only the character who is talking moves its mouth; the others keep their mouths closed and react. Keep the speaker's face and mouth clearly visible while they talk, facing the camera or in profile, never turned away or out of frame.",
+    "No narrator, no voice-over, no music. Soft natural ambient sound under the voices.",
+  ].join(" ");
 }
 
 export const shortsPlanSchema = z.object({

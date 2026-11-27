@@ -345,6 +345,9 @@ const en = {
     appearanceHint: "Age, gender, face, hair, outfit, colours, style (3D / anime / realistic…)",
     personality: "Personality / way of speaking",
     personalityPlaceholder: "Calm, witty, loves everyday examples",
+    voice: "Voice (in English)",
+    voiceHint: "How the character sounds when it talks on screen in a dialogue video",
+    voicePlaceholder: "High, bright little girl's voice, quick and whiny",
     reference: "Reference image",
     keep: "Keep current image",
     generate: "Let Muse draw it",
@@ -387,7 +390,7 @@ const en = {
     tonePlaceholder: "Funny, lightly sarcastic",
     language: "Narration language",
     format: "Video type",
-    formatHint: "Story videos are narrated scene by scene. Wordless stories tell a short visual parable with no voice and no subtitles; add music in the Reels, Shorts or TikTok app. Ambient loops film a few calm shots of one place and repeat them under a soundtrack you upload. Songs get AI-written lyrics and a style prompt for a music generator; the song you upload plays over one animated scene per part of the lyrics.",
+    formatHint: "Story videos are narrated scene by scene. Wordless stories tell a short visual parable with no voice and no subtitles; add music in the Reels, Shorts or TikTok app. Ambient loops film a few calm shots of one place and repeat them under a soundtrack you upload. Songs get AI-written lyrics and a style prompt for a music generator; the song you upload plays over one animated scene per part of the lyrics. Dialogue videos have no narrator: the characters speak their lines on screen in the voices set on each character.",
     fixedCamera: "One fixed camera",
     fixedCameraHint:
       "Muse draws a single frame and every shot starts from it, so the angle never changes and only the motion differs. Otherwise each shot is a different view of the place.",
@@ -396,6 +399,7 @@ const en = {
       wordless: { title: "Wordless story", sub: "Told by pictures, no voice" },
       ambient: { title: "Ambient loop", sub: "Your audio, looping calm footage" },
       song: { title: "Song", sub: "AI lyrics, your song, animated video" },
+      dialogue: { title: "Dialogue", sub: "Characters talk on screen" },
     },
     narratorVoice: "Narrator voice (ElevenLabs voice ID or voicestudio:<profile>)",
     narratorVoiceHint:
